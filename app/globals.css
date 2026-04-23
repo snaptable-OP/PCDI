@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent wide tables / flex children from stretching the whole viewport horizontally */
+html {
+  overflow-x: clip;
+  min-width: 0;
+}
+
+:root {
+  /* Slate neutrals + teal accent — B2B dashboard */
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --muted-foreground: #64748b;
+  --surface: #ffffff;
+  --surface-muted: #e2e8f0;
+  --border: #cbd5e1;
+  --border-subtle: #e2e8f0;
+  --accent: #0d9488;
+  --accent-muted: #ccfbf1;
+  --accent-foreground: #042f2e;
+  --ring: #14b8a6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0f172a;
+    --foreground: #f1f5f9;
+    --muted-foreground: #94a3b8;
+    --surface: #1e293b;
+    --surface-muted: #334155;
+    --border: #475569;
+    --border-subtle: #334155;
+    --accent: #2dd4bf;
+    --accent-muted: #134e4a;
+    --accent-foreground: #042f2e;
+    --ring: #5eead4;
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  overflow-x: clip;
+}
+
+/* Knowledge map — dark canvas (#0d1117) + React Flow chrome (avoid Tailwind `__` in arbitrary variants). */
+@layer components {
+  .knowledge-map-flow.react-flow {
+    --xy-background-color: #0d1117;
+    --xy-edge-stroke-default: #999999;
+    background-color: #0d1117;
+  }
+
+  .knowledge-map-flow .react-flow__minimap {
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background-color: #161b22;
+  }
+}
