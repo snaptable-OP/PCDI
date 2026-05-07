@@ -47,6 +47,8 @@ export type PcdiNodeData = {
   label: string;
   /** Optional provenance when ingested from discovery. */
   sourceProjectId?: string;
+  /** Knowledge map: precomputed category-graph fill (array order, not hash). */
+  bubbleFill?: string;
 };
 
 /** Payload on React Flow edges (`Edge<PcdiEdgeData>`). */
@@ -80,6 +82,11 @@ export type HistoricalProject = {
   createdAt: string;
   /** Historical: full register + Discover Categories + KM. Live: defect upload for AI response suggestions — export & prompt. */
   analysisModule: AnalysisModule;
+  /**
+   * Live / Billie: primary defect spreadsheet record on the analysis server (GET /api/defect-files/:id).
+   * Returned with GET /api/defect-projects when the backend includes it.
+   */
+  defectFileId?: string;
 };
 
 /** One row in the Historical Core defect register (mock ingest / discovery output). */
@@ -95,6 +102,20 @@ export type HistoricalDefectTableRow = {
    * Live analysis: standards / publication-like citations parsed from the defect description text (mock extraction).
    */
   extractedDocCitations?: string;
+  /**
+   * Billie AI merge: strategy_taxonomy_v2 labels suggested for this row (subset of STRATEGY_TAXONOMY_V2_OPTIONS).
+   */
+  aiSuggestedStrategies?: string[];
+  /**
+   * Canonical taxonomy labels parsed only from the `response_strategy` column (spreadsheet row / API).
+   * Defect sidebar “Data-suggested strategies” uses this field — not category heuristics or full-row scans.
+   */
+  responseStrategyTaxonomy?: string[];
+  /**
+   * 1-based worksheet row number for this defect in the **original** uploaded / merged spreadsheet (first sheet
+   * layout Billie uses). Used to scroll the Excel preview to the correct row; omitted for prototype seed rows.
+   */
+  excelSheetRow?: number;
 };
 
 export type AnalysisSessionStatus = "draft" | "in_progress" | "complete";
@@ -143,6 +164,18 @@ export type PcdiUploadSessionPayload = {
    * Keys are spreadsheet column headers; used with column mapping to build rows + mock AI categories.
    */
   dataRows?: Record<string, string>[];
+  /** Set when the same file was stored on S3 via /api/upload-xlsx (server). */
+  s3Bucket?: string;
+  s3Key?: string;
+  s3Region?: string;
+  /**
+   * Time-limited HTTPS URL to download the uploaded file (for backend / pipeline).
+   * From POST /api/upload-xlsx; duration controlled by S3_PRESIGN_TTL_SECONDS.
+   */
+  fileUrl?: string;
+  presignedUrlExpiresInSeconds?: number;
+  /** Returned by the analysis backend after saveExcelContent / parse registration. */
+  defectFileId?: string;
 };
 
 /** Active Analysis upload payload (sessionStorage before map-columns). */

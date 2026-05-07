@@ -60,7 +60,7 @@ export function DefectAnalysisPromptView({ projectId, basePath }: Props) {
         <p>Project not found. It may have been removed from this browser.</p>
         <Link
           href={basePath}
-          className="mt-2 inline-block font-medium text-teal-700 underline hover:underline dark:text-teal-300"
+          className="mt-2 inline-block font-medium text-link underline hover:underline"
         >
           Back to projects
         </Link>
@@ -77,7 +77,7 @@ export function DefectAnalysisPromptView({ projectId, basePath }: Props) {
         </p>
         <Link
           href="/historical"
-          className="mt-2 inline-block font-medium text-teal-700 underline hover:underline dark:text-teal-300"
+          className="mt-2 inline-block font-medium text-link underline hover:underline"
         >
           Open historical projects
         </Link>
@@ -97,7 +97,7 @@ export function DefectAnalysisPromptView({ projectId, basePath }: Props) {
         </div>
         <Link
           href={`${basePath}/${projectId}/defects`}
-          className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90"
+          className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
         >
           Back to live defect register
         </Link>
@@ -132,7 +132,7 @@ export function DefectAnalysisPromptView({ projectId, basePath }: Props) {
           <div
             aria-live="polite"
             role="status"
-            className="min-h-[1.25rem] text-sm text-teal-800 dark:text-teal-200"
+            className="min-h-[1.25rem] text-sm text-foreground-emphasis"
           >
             {liveMessage}
           </div>
@@ -145,7 +145,7 @@ export function DefectAnalysisPromptView({ projectId, basePath }: Props) {
 
       <Link
         href={`${basePath}/${projectId}/defects`}
-        className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90"
+        className="inline-flex rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
       >
         Back to defect register
       </Link>

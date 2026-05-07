@@ -1,8 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  /** Reduces server bundle bloat; AWS SDK runs from node_modules. */
+  serverExternalPackages: [
+    "@aws-sdk/client-s3",
+    "@aws-sdk/s3-request-presigner",
+    "@aws-sdk/*",
+  ],
+
   /** Helps Next/Webpack consume @xyflow’s conditional exports reliably (avoids bad interop chunks). */
-  transpilePackages: ["@xyflow/react", "@xyflow/system"],
+  transpilePackages: ["@xyflow/react", "@xyflow/system", "exceljs"],
 
   /**
    * `xlsx` (SheetJS) touches Node built-ins. Stub them for the browser bundle to avoid
@@ -26,21 +33,15 @@ const nextConfig: NextConfig = {
       { source: "/active", destination: "/live", permanent: false },
       { source: "/active/:path*", destination: "/live/:path*", permanent: false },
       { source: "/live/:projectId/metadata", destination: "/live/:projectId/setup", permanent: false },
-      { source: "/live/:projectId/upload", destination: "/live/:projectId/setup", permanent: false },
-      { source: "/live/:projectId/map-columns", destination: "/live/:projectId/setup", permanent: false },
+      { source: "/live/:projectId/map-columns", destination: "/live/:projectId/upload", permanent: false },
       {
         source: "/historical/:projectId/metadata",
         destination: "/historical/:projectId/setup",
         permanent: false,
       },
       {
-        source: "/historical/:projectId/upload",
-        destination: "/historical/:projectId/setup",
-        permanent: false,
-      },
-      {
         source: "/historical/:projectId/map-columns",
-        destination: "/historical/:projectId/setup",
+        destination: "/historical/:projectId/upload",
         permanent: false,
       },
     ];

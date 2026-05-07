@@ -8,7 +8,7 @@ export default async function LivePromptPage({ params }: Props) {
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl">
       <div className="mb-2 text-sm text-[var(--muted-foreground)]">
-        <Link href={`/live/${projectId}/defects`} className="text-teal-700 hover:underline dark:text-teal-300">
+        <Link href={`/live/${projectId}/defects`} className="text-link hover:underline">
           ← Defect register
         </Link>
       </div>

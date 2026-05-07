@@ -6,36 +6,193 @@
 html {
   overflow-x: clip;
   min-width: 0;
+  color-scheme: light;
 }
 
+/* ─── QuarryMinds — developer colour guide (semantic tokens) ─── */
 :root {
-  /* Slate neutrals + teal accent — B2B dashboard */
-  --background: #f1f5f9;
-  --foreground: #0f172a;
-  --muted-foreground: #64748b;
+  /* Brand accent */
+  --slate-blue: #6b8ea0;
+  --deep-shale: #4a6a7a;
+  --weathered-slate: #8aacbc;
+  --quarry-mist: #a8c4d0;
+  --bluestone-wash: #d0e0e8;
+
+  /* Earth backgrounds */
+  --quarry-night: #1a1612;
+  --deep-earth: #2a2218;
+  --raw-umber: #3d3228;
+  --claystone: #4a3f32;
+  --weathered-rock: #6b5e4e;
+
+  /* Text hierarchy */
+  --text-primary: #e8e0d4;
+  --text-secondary: #c8b898;
+  --text-body: #a09480;
+  --text-muted: #6b5e4e;
+
+  /* Data viz: greens */
+  --green-1: #3a4d36;
+  --green-2: #576b50;
+  --green-3: #7fa65a;
+  --green-4: #9dbf7a;
+  --green-5: #c2d8a0;
+
+  /* Data viz: waters */
+  --water-1: #3d6868;
+  --water-2: #5a8a8a;
+  --water-3: #78a8a8;
+  --water-4: #96c0be;
+  --water-5: #b8d8d4;
+
+  /* Fired earths */
+  --fire-1: #8b4a2a;
+  --fire-2: #c87850;
+  --fire-3: #d89878;
+  --fire-4: #e8b8a0;
+  --fire-5: #f0d4c4;
+
+  /* Sediment & silt */
+  --silt-1: #6b5440;
+  --silt-2: #a08060;
+  --silt-3: #b89878;
+  --silt-4: #c8b090;
+  --silt-5: #ddd0b8;
+
+  /* Iron & oxide */
+  --iron-1: #5c3a1e;
+  --iron-2: #8b5a2b;
+  --iron-3: #a87840;
+  --iron-4: #c89858;
+  --iron-5: #d8b878;
+
+  /* Slate & shale */
+  --shale-1: #4a5a60;
+  --shale-2: #687e88;
+  --shale-3: #88a0ac;
+  --shale-4: #a0b8c0;
+  --shale-5: #c0d0d8;
+
+  /* Surfaces & chrome */
+  --sidebar-bg: #3d6868;
+  --sidebar-border: rgba(255, 255, 255, 0.14);
+  --sidebar-heading-text: #f5faf9;
+  --sidebar-subtitle-text: rgba(232, 224, 212, 0.95);
+  --sidebar-nav-text: #eef6f5;
+  --sidebar-nav-hover-bg: rgba(255, 255, 255, 0.14);
+  --sidebar-nav-hover-text: #ffffff;
+  --sidebar-icon: #c8e8e6;
+  /* Main content column (right of sidebar) — matches --water-5 */
+  --main-column-bg: var(--water-5);
   --surface: #ffffff;
-  --surface-muted: #e2e8f0;
-  --border: #cbd5e1;
-  --border-subtle: #e2e8f0;
-  --accent: #0d9488;
-  --accent-muted: #ccfbf1;
-  --accent-foreground: #042f2e;
-  --ring: #14b8a6;
+  --surface-elevated: #f8f6f3;
+  --surface-muted: #f8f6f3;
+  --background: var(--bluestone-wash);
+  /* Body text: raw umber for comfortable contrast (guide critical fix) */
+  --foreground: var(--raw-umber);
+  --heading-foreground: var(--deep-shale);
+  --muted-foreground: var(--weathered-rock);
+  --emphasis-foreground: var(--deep-shale);
+  --table-header: var(--claystone);
+  --table-body: var(--raw-umber);
+
+  /* Card elevation — guide prefers shadow over faint border */
+  --card-shadow: 0 2px 8px rgba(74, 63, 50, 0.1);
+
+  --border: rgba(107, 142, 160, 0.15);
+  --border-subtle: rgba(107, 142, 160, 0.08);
+
+  --accent: var(--slate-blue);
+  --accent-hover: var(--deep-shale);
+  --accent-active: #3d5a68;
+  --accent-foreground: #ffffff;
+  --accent-muted: rgba(107, 142, 160, 0.12);
+  --accent-tint: rgba(107, 142, 160, 0.08);
+  --accent-tint-border: rgba(107, 142, 160, 0.15);
+
+  --ring: var(--weathered-slate);
+  --link: var(--slate-blue);
+  --link-hover: var(--deep-shale);
+
+  --nav-text: var(--weathered-rock);
+  --nav-hover-text: var(--deep-shale);
+  --nav-hover-bg: rgba(107, 142, 160, 0.1);
+
+  /* Mind map canvas — slightly cooler to bridge bluestone page (#E0DDD4) */
+  --map-canvas: #e0ddd4;
+  --map-panel: #d4d1c8;
+
+  /* Warm shadows (no cold grey) */
+  --shadow-sm: 0 1px 3px rgba(74, 63, 50, 0.08);
+  --shadow-md: 0 4px 12px rgba(74, 63, 50, 0.1);
+  --shadow-lg: 0 8px 24px rgba(74, 63, 50, 0.12);
+  --shadow-xl: 0 16px 48px rgba(74, 63, 50, 0.16);
+
+  /* Semantic status */
+  --status-open: var(--slate-blue);
+  --status-progress: var(--iron-3);
+  --status-complete: var(--green-3);
+  --status-warning: var(--fire-2);
+  --status-error: var(--fire-1);
+  --status-info: var(--water-2);
+
+  --placeholder-foreground: rgba(74, 106, 122, 0.45);
+
+  /* Legacy aliases (mineral keys used in Tailwind / graphs) */
+  --mineral-deep-shale: var(--deep-shale);
+  --mineral-slate-blue: var(--slate-blue);
+  --mineral-weathered-slate: var(--weathered-slate);
+  --mineral-quarry-mist: var(--quarry-mist);
+  --mineral-bluestone-wash: var(--bluestone-wash);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0f172a;
-    --foreground: #f1f5f9;
-    --muted-foreground: #94a3b8;
-    --surface: #1e293b;
-    --surface-muted: #334155;
-    --border: #475569;
-    --border-subtle: #334155;
-    --accent: #2dd4bf;
-    --accent-muted: #134e4a;
-    --accent-foreground: #042f2e;
-    --ring: #5eead4;
+/*
+ * Dark palette — opt-in only (`<html class="dark">`).
+ * We do not key off `prefers-color-scheme`: OS dark mode was overriding the intended light
+ * QuarryMinds chrome (#3d6868 sidebar, #b8d8d4 main column, etc.), so changes looked “missing”.
+ */
+html.dark {
+  --background: var(--quarry-night);
+  --foreground: var(--text-primary);
+  --heading-foreground: var(--text-secondary);
+  --muted-foreground: var(--text-body);
+  --emphasis-foreground: var(--text-secondary);
+  --surface: var(--deep-earth);
+  --surface-elevated: var(--raw-umber);
+  --sidebar-bg: #3d6868;
+  --main-column-bg: #1e2c2b;
+  --border: rgba(107, 142, 160, 0.1);
+  --border-subtle: rgba(107, 142, 160, 0.06);
+  --accent: var(--slate-blue);
+  --accent-hover: #7a9aad;
+  --accent-active: var(--deep-shale);
+  --accent-foreground: #ffffff;
+  --accent-muted: rgba(107, 142, 160, 0.18);
+  --accent-tint: rgba(107, 142, 160, 0.12);
+  --accent-tint-border: rgba(107, 142, 160, 0.22);
+  --ring: var(--quarry-mist);
+  --link: var(--quarry-mist);
+  --link-hover: var(--bluestone-wash);
+  --nav-text: var(--text-body);
+  --nav-hover-text: var(--text-primary);
+  --nav-hover-bg: rgba(107, 142, 160, 0.12);
+  --map-canvas: #2a241c;
+  --map-panel: #3d3228;
+  --table-body: var(--text-primary);
+  --table-header: var(--text-secondary);
+  --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
+@layer base {
+  h1,
+  h2 {
+    color: var(--heading-foreground);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--placeholder-foreground);
   }
 }
 
@@ -45,17 +202,89 @@ body {
   overflow-x: clip;
 }
 
-/* Knowledge map — dark canvas (#0d1117) + React Flow chrome (avoid Tailwind `__` in arbitrary variants). */
+/* QuarryMinds — tables (guide: th claystone 600, td raw umber) */
+@layer components {
+  .qm-table thead th {
+    color: var(--table-header);
+    font-weight: 600;
+  }
+
+  .qm-table tbody td {
+    color: var(--table-body);
+  }
+
+  /* Status badges — stronger pill backgrounds (guide critical fix) */
+  .qm-badge-open {
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 600;
+    color: var(--water-2);
+    background: rgba(90, 138, 138, 0.16);
+  }
+
+  .qm-badge-in-progress {
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 600;
+    color: var(--iron-2);
+    background: rgba(168, 120, 64, 0.18);
+  }
+
+  .qm-badge-complete {
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 600;
+    color: var(--green-1);
+    background: rgba(127, 166, 90, 0.18);
+  }
+
+  .qm-badge-warning {
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 600;
+    color: var(--fire-1);
+    background: rgba(200, 120, 80, 0.18);
+  }
+
+  .qm-badge-error {
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-weight: 600;
+    color: var(--iron-1);
+    background: rgba(139, 74, 42, 0.18);
+  }
+}
+
+/* Knowledge map — React Flow */
 @layer components {
   .knowledge-map-flow.react-flow {
-    --xy-background-color: #0d1117;
-    --xy-edge-stroke-default: #999999;
-    background-color: #0d1117;
+    --xy-background-color: var(--map-canvas);
+    --xy-edge-stroke-default: var(--shale-2);
+    background-color: var(--map-canvas);
   }
 
   .knowledge-map-flow .react-flow__minimap {
     border-radius: 0.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background-color: #161b22;
+    border: 1px solid var(--border);
+    background-color: var(--map-panel);
   }
+}
+
+/*
+ * Knowledge map route wrapper (.km-page-canvas on layout).
+ * :root --map-canvas is beige; React Flow maps --xy-background-color → var(--map-canvas), so without
+ * this scope the pane stayed off‑white even when ancestors set arbitrary tokens.
+ */
+.km-page-canvas {
+  background-color: #ffffff;
+}
+
+.km-page-canvas .knowledge-map-flow.react-flow {
+  --map-canvas: #ffffff;
+  --xy-background-color: #ffffff;
+  background-color: #ffffff;
+}
+
+.km-page-canvas .knowledge-map-flow .react-flow__minimap {
+  background-color: #ffffff;
 }

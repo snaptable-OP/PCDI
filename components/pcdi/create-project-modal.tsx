@@ -137,7 +137,7 @@ export function CreateProjectModal({ open, onClose, onSubmit }: CreateProjectMod
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] outline-none ring-[var(--ring)] hover:opacity-90 focus-visible:ring-2"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] outline-none ring-[var(--ring)] hover:bg-accent-hover active:bg-accent-active focus-visible:ring-2"
             >
               Continue
             </button>

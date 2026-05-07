@@ -43,7 +43,7 @@ export function DefectsRegisterView({ projectId, module, basePath }: DefectsRegi
         </p>
         <Link
           href={project.analysisModule === "historical" ? "/historical" : "/live"}
-          className="mt-2 inline-block font-medium text-teal-700 underline hover:underline dark:text-teal-300"
+          className="mt-2 inline-block font-medium text-link underline hover:underline"
         >
           Open the correct project list
         </Link>
@@ -56,7 +56,7 @@ export function DefectsRegisterView({ projectId, module, basePath }: DefectsRegi
         <p>Project not found. It may have been removed from this browser.</p>
         <Link
           href={basePath}
-          className="mt-2 inline-block font-medium text-teal-700 underline hover:underline dark:text-teal-300"
+          className="mt-2 inline-block font-medium text-link underline hover:underline"
         >
           Back to projects
         </Link>
@@ -103,12 +103,18 @@ export function DefectsRegisterView({ projectId, module, basePath }: DefectsRegi
             href={`${basePath}/${projectId}/setup`}
             className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-muted)]"
           >
-            Project setup
+            Project details
+          </Link>
+          <Link
+            href={`${basePath}/${projectId}/upload`}
+            className="inline-flex items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--surface-muted)]"
+          >
+            Spreadsheet
           </Link>
           {isHistorical ? (
             <Link
               href={`${basePath}/${projectId}/discovery`}
-              className="inline-flex items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90"
+              className="inline-flex items-center justify-center rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
             >
               Discover Categories
             </Link>

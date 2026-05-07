@@ -15,9 +15,9 @@ export default function DefectAnalysisHubPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Link
           href="/historical"
-          className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition hover:border-teal-500/50 hover:shadow-md"
+          className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition hover:border-accent/50 hover:shadow-md"
         >
-          <div className="flex items-center gap-2 text-teal-700 dark:text-teal-300">
+          <div className="flex items-center gap-2 text-link">
             <History className="h-5 w-5" aria-hidden />
             <span className="font-semibold">Historical analysis</span>
           </div>
@@ -25,16 +25,16 @@ export default function DefectAnalysisHubPage() {
             Defect registers with response data, Discover Categories, alignment with the knowledge map, and
             publishing categories.
           </p>
-          <span className="mt-4 text-sm font-medium text-teal-700 group-hover:underline dark:text-teal-300">
+          <span className="mt-4 text-sm font-medium text-link group-hover:underline">
             Open historical projects →
           </span>
         </Link>
 
         <Link
           href="/live"
-          className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition hover:border-teal-500/50 hover:shadow-md"
+          className="group flex flex-col rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 transition hover:border-accent/50 hover:shadow-md"
         >
-          <div className="flex items-center gap-2 text-teal-700 dark:text-teal-300">
+          <div className="flex items-center gap-2 text-link">
             <Zap className="h-5 w-5" aria-hidden />
             <span className="font-semibold">Live project analysis</span>
           </div>
@@ -42,7 +42,7 @@ export default function DefectAnalysisHubPage() {
             Defect-focused file without filled-in response strategy — export to Excel and copy the master prompt
             for AI suggestions.
           </p>
-          <span className="mt-4 text-sm font-medium text-teal-700 group-hover:underline dark:text-teal-300">
+          <span className="mt-4 text-sm font-medium text-link group-hover:underline">
             Open live projects →
           </span>
         </Link>

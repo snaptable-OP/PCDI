@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo } from "react";
+import { defectCategoryDisplayKey } from "@/lib/pcdi/defect-category-display";
 import { inferDocumentTypesFromCategoryAndStrategy } from "@/lib/pcdi/live-inferred-documents";
 import { resolveLiveResponseStrategy } from "@/lib/pcdi/live-rows";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
@@ -9,6 +11,9 @@ type Props = {
   baseRows: HistoricalDefectTableRow[];
   selections: Record<string, string>;
   bulkConfirmed: boolean;
+  /** Target route for opening the live analysis graph (`/defects`). */
+  projectId: string;
+  basePath: string;
 };
 
 function splitExplicitCitations(text: string | undefined): string[] {
@@ -23,13 +28,19 @@ function splitExplicitCitations(text: string | undefined): string[] {
   ].sort((a, b) => a.localeCompare(b));
 }
 
-export function LivePivotSummary({ baseRows, selections, bulkConfirmed }: Props) {
+export function LivePivotSummary({
+  baseRows,
+  selections,
+  bulkConfirmed,
+  projectId,
+  basePath,
+}: Props) {
   const total = baseRows.length;
 
   const defectCategoryPivot = useMemo(() => {
     const m = new Map<string, number>();
     for (const r of baseRows) {
-      const k = r.defectCategory?.trim() || "—";
+      const k = defectCategoryDisplayKey(r.defectCategory ?? "");
       m.set(k, (m.get(k) ?? 0) + 1);
     }
     return [...m.entries()].sort((a, b) => b[1] - a[1]);
@@ -60,25 +71,47 @@ export function LivePivotSummary({ baseRows, selections, bulkConfirmed }: Props)
     const bag = new Set<string>();
     for (const r of baseRows) {
       const strategy = resolveLiveResponseStrategy(r, selections);
-      for (const line of inferDocumentTypesFromCategoryAndStrategy(r.defectCategory, strategy)) {
+      for (const line of inferDocumentTypesFromCategoryAndStrategy(
+        defectCategoryDisplayKey(r.defectCategory ?? ""),
+        strategy,
+      )) {
         bag.add(line);
       }
     }
     return [...bag].sort((a, b) => a.localeCompare(b));
   }, [baseRows, selections]);
 
+  const analysisHref = `${basePath}/${projectId}/defects`;
+
   if (total === 0) {
     return (
-      <p className="text-sm text-[var(--muted-foreground)]">
-        No parsed rows yet — upload a spreadsheet and map columns first.
-      </p>
+      <div className="space-y-3">
+        <p className="text-sm text-[var(--muted-foreground)]">
+          No parsed rows yet — upload a spreadsheet and map columns first.
+        </p>
+        <p className="text-sm text-[var(--muted-foreground)]">
+          <Link
+            href={analysisHref}
+            className="font-medium text-link underline decoration-link/40 underline-offset-2 hover:decoration-link dark:decoration-link/40 dark:hover:decoration-link"
+          >
+            Live analysis
+          </Link>{" "}
+          opens once register rows exist.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-sm">
-      <div className="border-b border-[var(--border)] bg-[var(--surface-muted)]/60 px-4 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface-muted)]/60 px-4 py-3">
         <p className="text-sm font-semibold text-[var(--foreground)]">Parsed register summary</p>
+        <Link
+          href={analysisHref}
+          className="shrink-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-muted)]"
+        >
+          Live analysis
+        </Link>
       </div>
       <div className="grid gap-4 p-4 sm:grid-cols-2">
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--background)] px-3 py-2.5">

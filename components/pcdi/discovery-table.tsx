@@ -99,12 +99,12 @@ function NovelPublishList({
         const checked = selectedKeys.has(key);
         return (
           <li key={key}>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-teal-200/60 bg-teal-500/[0.06] px-4 py-3 dark:border-teal-800 dark:bg-teal-950/25">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-accent-tint-border bg-accent-tint px-4 py-3 dark:border-shale-wet-slate/60 dark:bg-accent-muted/30">
               <input
                 type="checkbox"
                 checked={checked}
                 onChange={(e) => onToggle(key, e.target.checked)}
-                className="mt-1 size-4 shrink-0 rounded border-teal-400 text-teal-700 focus:ring-teal-600 dark:border-teal-700"
+                className="mt-1 size-4 shrink-0 rounded border-accent text-link focus:ring-accent dark:border-mineral-deep-shale"
               />
               <span className="text-sm font-medium text-[var(--foreground)]">{label}</span>
             </label>
@@ -140,7 +140,7 @@ function KmMatchMockTable({
         <p className="mt-1 text-xs text-[var(--muted-foreground)]">
           <span className="font-medium text-[var(--foreground)]">{nCat}</span> existing{" "}
           {nCat === 1 ? "category" : "categories"} on the knowledge map ·{" "}
-          <span className="font-medium tabular-nums text-teal-800 dark:text-teal-200">{totalRows}</span>{" "}
+          <span className="font-medium tabular-nums text-foreground-emphasis">{totalRows}</span>{" "}
           register row{totalRows === 1 ? "" : "s"} matched in total (by{" "}
           {sideLabel.toLowerCase()} category column)
         </p>
@@ -159,7 +159,7 @@ function KmMatchMockTable({
             {rows.map((r) => (
               <tr key={`${sideLabel}-${r.knowledgeMapCategory}`} className="text-[var(--foreground)]">
                 <td className="max-w-[min(100%,28rem)] px-3 py-2.5 align-top">{r.knowledgeMapCategory}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-teal-800 dark:text-teal-200">
+                <td className="px-3 py-2.5 text-right tabular-nums text-sm font-semibold text-foreground-emphasis">
                   {r.matchedRowCount}
                 </td>
               </tr>
@@ -324,7 +324,7 @@ export function DiscoveryTable({ projectId }: DiscoveryTableProps) {
           onClick={() => setTab("defect")}
           className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
             tab === "defect"
-              ? "border-teal-600 text-[var(--foreground)]"
+              ? "border-accent text-[var(--foreground)]"
               : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -335,7 +335,7 @@ export function DiscoveryTable({ projectId }: DiscoveryTableProps) {
           onClick={() => setTab("response")}
           className={`border-b-2 px-3 py-2 text-sm font-medium transition ${
             tab === "response"
-              ? "border-teal-600 text-[var(--foreground)]"
+              ? "border-accent text-[var(--foreground)]"
               : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
           }`}
         >
@@ -415,7 +415,7 @@ export function DiscoveryTable({ projectId }: DiscoveryTableProps) {
       <div className="flex flex-col gap-4 border-t border-[var(--border-subtle)] pt-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm">
           {publishedAt ? (
-            <p className="text-teal-800 dark:text-teal-200" role="status">
+            <p className="text-foreground-emphasis" role="status">
               Published to knowledge map at{" "}
               {new Date(publishedAt).toLocaleString(undefined, {
                 dateStyle: "medium",
@@ -435,7 +435,7 @@ export function DiscoveryTable({ projectId }: DiscoveryTableProps) {
             type="button"
             disabled={!canPublish}
             onClick={handlePublish}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
           >
             Publish to knowledge map
           </button>

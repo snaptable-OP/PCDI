@@ -22,6 +22,11 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 import { Minus, Plus, RotateCcw, Search } from "lucide-react";
+import {
+  categoryBubbleFill,
+  MIND_MAP_BUBBLE_FILLS,
+  mindMapBubbleFillForNodeId,
+} from "@/lib/pcdi/mind-map-palette";
 import { computeBubbleLayoutPositions } from "@/lib/pcdi/knowledge-graph-bubble-layout";
 import {
   clusterFocusNodeIds,
@@ -32,16 +37,12 @@ import { usePcdiGraphStore, type PcdiRfEdge, type PcdiRfNode } from "@/lib/pcdi/
 import { useGraphStoreHydrated } from "@/lib/pcdi/use-graph-store-hydrated";
 import type { PcdiEdgeType, PcdiNodeData } from "@/lib/pcdi/types";
 
-/**
- * Mind-graph palette (WB-AI architecture reference): filled hubs, white stroke, labels beneath nodes.
- */
-const GRAPH_NODE_STYLE: Record<
-  PcdiNodeData["kind"],
-  { fill: string; stroke: string; size: number }
-> = {
-  defect_category: { fill: "#2196f3", stroke: "#ffffff", size: 48 },
-  response_category: { fill: "#9c27b0", stroke: "#ffffff", size: 44 },
-  reference_doc: { fill: "#ff7043", stroke: "#ffffff", size: 40 },
+const NODE_STROKE = "#ffffff";
+
+const NODE_SIZE: Record<PcdiNodeData["kind"], number> = {
+  defect_category: 48,
+  response_category: 44,
+  reference_doc: 40,
 };
 
 function kindLabel(kind: PcdiNodeData["kind"]): string {
@@ -66,9 +67,10 @@ function labelsMatchSearchQuery(label: string, query: string): boolean {
   return terms.every((t) => hay.includes(t));
 }
 
-function PcdiFlowNode({ data }: NodeProps<Node<PcdiNodeData, "pcdi">>) {
-  const st = GRAPH_NODE_STYLE[data.kind];
-  const px = `${st.size}px`;
+function PcdiFlowNode({ data, id }: NodeProps<Node<PcdiNodeData, "pcdi">>) {
+  const fill = data.bubbleFill ?? mindMapBubbleFillForNodeId(id);
+  const sizePx = NODE_SIZE[data.kind];
+  const px = `${sizePx}px`;
 
   return (
     <div className="flex max-w-[220px] flex-col items-center gap-1.5 select-none">
@@ -79,7 +81,7 @@ function PcdiFlowNode({ data }: NodeProps<Node<PcdiNodeData, "pcdi">>) {
             position={Position.Right}
             id="src"
             className="opacity-0"
-            style={{ borderColor: st.stroke, backgroundColor: st.fill }}
+            style={{ borderColor: NODE_STROKE, backgroundColor: fill }}
           />
         ) : null}
         {data.kind === "response_category" ? (
@@ -89,14 +91,14 @@ function PcdiFlowNode({ data }: NodeProps<Node<PcdiNodeData, "pcdi">>) {
               position={Position.Left}
               id="tgt"
               className="opacity-0"
-              style={{ borderColor: st.stroke, backgroundColor: st.fill }}
+              style={{ borderColor: NODE_STROKE, backgroundColor: fill }}
             />
             <Handle
               type="source"
               position={Position.Right}
               id="src"
               className="opacity-0"
-              style={{ borderColor: st.stroke, backgroundColor: st.fill }}
+              style={{ borderColor: NODE_STROKE, backgroundColor: fill }}
             />
           </>
         ) : null}
@@ -106,20 +108,20 @@ function PcdiFlowNode({ data }: NodeProps<Node<PcdiNodeData, "pcdi">>) {
             position={Position.Left}
             id="tgt"
             className="opacity-0"
-            style={{ borderColor: st.stroke, backgroundColor: st.fill }}
+            style={{ borderColor: NODE_STROKE, backgroundColor: fill }}
           />
         ) : null}
         <div
           className="absolute inset-0 rounded-full border-2 transition-[transform,box-shadow] duration-200"
           style={{
-            borderColor: st.stroke,
-            backgroundColor: st.fill,
-            boxShadow: "0 4px 14px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.15)",
+            borderColor: NODE_STROKE,
+            backgroundColor: fill,
+            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255,255,255,0.2)",
           }}
         />
       </div>
       <div
-        className={`line-clamp-4 w-full max-w-[210px] text-center text-[11px] leading-snug text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.92),0_0_10px_rgba(0,0,0,0.65)] ${
+        className={`line-clamp-4 w-full max-w-[210px] text-center text-[11px] leading-snug text-[var(--table-header)] ${
           data.kind === "defect_category" ? "font-bold" : "font-medium"
         }`}
         title={data.label}
@@ -264,6 +266,16 @@ function KnowledgeGraphCanvasInner() {
     ).length;
   }, [positionedNodes, searchQuery, searchActive]);
 
+  const bubbleFillByNodeId = useMemo(() => {
+    const sorted = [...positionedNodes].sort((a, b) => a.id.localeCompare(b.id));
+    const total = sorted.length;
+    const m = new Map<string, string>();
+    sorted.forEach((node, i) => {
+      m.set(node.id, categoryBubbleFill(i, total));
+    });
+    return m;
+  }, [positionedNodes]);
+
   const flowNodes = useMemo(() => {
     const normalized = normalizeNodes(positionedNodes as Node<PcdiNodeData>[]);
     return normalized.map((n) => {
@@ -281,6 +293,10 @@ function KnowledgeGraphCanvasInner() {
       const match = matchSearch && inCluster && inHoverNet;
       return {
         ...n,
+        data: {
+          ...n.data,
+          bubbleFill: bubbleFillByNodeId.get(n.id),
+        },
         style: {
           ...n.style,
           opacity,
@@ -291,6 +307,7 @@ function KnowledgeGraphCanvasInner() {
     });
   }, [
     positionedNodes,
+    bubbleFillByNodeId,
     searchQuery,
     searchActive,
     clusterIds,
@@ -318,12 +335,12 @@ function KnowledgeGraphCanvasInner() {
       const kind = (e.data?.kind ?? "correlation") as PcdiEdgeType;
       const isRefLink = kind === "reference_link";
 
-      let stroke = isRefLink ? "#a1887f" : "#999999";
+      let stroke = isRefLink ? "#A08060" : "#687E88";
       let strokeWidth = 2;
       let opacity = 0.62;
 
       if (hiCluster || hiHoverEdge) {
-        stroke = hiHoverEdge ? "#ffffff" : isRefLink ? "#ffcc80" : "#e3f2fd";
+        stroke = hiHoverEdge ? "#4A6A7A" : isRefLink ? "#C89858" : "#6B8EA0";
         strokeWidth = hiHoverEdge ? 3 : 2.25;
         opacity = 1;
       }
@@ -422,11 +439,11 @@ function KnowledgeGraphCanvasInner() {
 
   if (!graphHydrated) {
     return (
-      <div className="flex min-h-[420px] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/20 bg-[rgba(13,17,23,0.65)] px-6 py-16 text-center backdrop-blur-sm">
-        <p className="text-sm font-medium text-white/90">Loading knowledge map…</p>
-        <p className="max-w-md text-xs text-white/55">
+      <div className="flex min-h-[420px] w-full flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-surface-muted/60 px-6 py-16 text-center backdrop-blur-sm">
+        <p className="text-sm font-medium text-foreground">Loading knowledge map…</p>
+        <p className="max-w-md text-xs text-foreground-muted">
           Restoring from{" "}
-          <code className="rounded border border-white/10 bg-black/30 px-1.5 py-0.5 font-mono text-white/90">
+          <code className="rounded border border-border bg-surface px-1.5 py-0.5 font-mono text-foreground">
             pcdi-graph-v1
           </code>
         </p>
@@ -435,19 +452,21 @@ function KnowledgeGraphCanvasInner() {
   }
 
   return (
-    <section className="w-full rounded-2xl border border-white/10 bg-[rgba(13,17,23,0.82)] p-4 shadow-2xl backdrop-blur-md sm:p-7">
-      <h2 className="mb-1 text-center text-xl font-light tracking-tight text-white sm:text-2xl">
+    <section className="w-full rounded-2xl border border-border bg-surface p-4 shadow-sm sm:p-7">
+      <h2 className="mb-1 text-center text-xl font-light tracking-tight text-foreground sm:text-2xl">
         Connectivity graph
       </h2>
-      <p className="mb-4 text-center text-sm text-white/55">
+      <p className="mb-4 text-center text-sm text-foreground-muted">
         Scroll to zoom · Drag to pan · Hover neighbors · Click a node to focus a cluster ·{" "}
-        <kbd className="rounded border border-white/15 bg-black/30 px-1.5 py-0.5 text-xs text-white/80">Esc</kbd>{" "}
+        <kbd className="rounded border border-border bg-surface-muted px-1.5 py-0.5 text-xs text-foreground">
+          Esc
+        </kbd>{" "}
         clears focus
       </p>
 
-      <div className="mb-4 rounded-xl border border-white/10 bg-black/25 p-3 sm:p-4">
-        <label htmlFor="km-node-search" className="flex items-center gap-2 text-xs font-semibold text-white/90">
-          <Search className="h-3.5 w-3.5 shrink-0 text-sky-400" aria-hidden />
+      <div className="mb-4 rounded-xl border border-border bg-surface-muted/50 p-3 sm:p-4">
+        <label htmlFor="km-node-search" className="flex items-center gap-2 text-xs font-semibold text-foreground">
+          <Search className="h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
           Search nodes
         </label>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -461,14 +480,14 @@ function KnowledgeGraphCanvasInner() {
             }}
             placeholder="Filter by label…"
             autoComplete="off"
-            className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0d1117] px-3 py-2 text-sm text-white outline-none ring-sky-500/30 placeholder:text-white/40 focus:ring-2"
+            className="min-w-0 flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none ring-accent/30 placeholder:text-foreground-muted focus:ring-2"
             aria-describedby="km-search-hint"
           />
           <button
             type="button"
             disabled={!searchActive}
             onClick={() => setSearchQuery("")}
-            className="shrink-0 rounded-lg border border-white/15 bg-[#161b22] px-3 py-2 text-sm text-white/90 hover:bg-[#21262d] disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-40"
           >
             Clear
           </button>
@@ -476,15 +495,15 @@ function KnowledgeGraphCanvasInner() {
             type="button"
             disabled={!searchActive || matchCount === 0}
             onClick={fitMatchingNodes}
-            className="shrink-0 rounded-lg bg-[#2196f3] px-3 py-2 text-sm font-medium text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
           >
             Fit matches
           </button>
         </div>
-        <p id="km-search-hint" className="mt-2 text-[11px] text-white/45">
+        <p id="km-search-hint" className="mt-2 text-[11px] text-foreground-muted">
           {searchActive ? (
             <>
-              <span className="font-medium text-white/80">{matchCount}</span> of {positionedNodes.length} match
+              <span className="font-medium text-foreground">{matchCount}</span> of {positionedNodes.length} match
             </>
           ) : (
             <>
@@ -494,17 +513,17 @@ function KnowledgeGraphCanvasInner() {
         </p>
       </div>
 
-      <div className="relative h-[min(72vh,700px)] min-h-[480px] w-full overflow-hidden rounded-lg border border-white/10 bg-[#0d1117]">
+      <div className="relative h-[min(72vh,700px)] min-h-[480px] w-full overflow-hidden rounded-lg border border-border bg-white">
         {tip ? (
           <div
-            className="pointer-events-none fixed z-[200] max-w-xs rounded-md border border-[#30363d] bg-[rgba(33,38,45,0.96)] px-3 py-2 text-left text-sm text-white shadow-xl"
+            className="pointer-events-none fixed z-[200] max-w-xs rounded-md border border-border bg-surface px-3 py-2 text-left text-sm text-foreground shadow-xl"
             style={{
               left: tip.x + 12,
               top: tip.y + 8,
             }}
           >
             <div className="font-semibold leading-snug">{tip.title}</div>
-            <div className="mt-0.5 text-xs text-white/65">{tip.subtitle}</div>
+            <div className="mt-0.5 text-xs text-foreground-muted">{tip.subtitle}</div>
           </div>
         ) : null}
 
@@ -549,31 +568,32 @@ function KnowledgeGraphCanvasInner() {
           fitView={false}
           defaultEdgeOptions={{
             type: "straight",
-            style: { stroke: "#999999", strokeWidth: 2, opacity: 0.62 },
+            style: { stroke: "#687E88", strokeWidth: 2, opacity: 0.62 },
           }}
           proOptions={{ hideAttribution: true }}
           className="knowledge-map-flow h-full w-full cursor-grab active:cursor-grabbing"
+          style={{ backgroundColor: "#ffffff" }}
         >
           <MiniMap
             position="bottom-left"
             className="z-[10] !m-3"
             nodeStrokeWidth={2}
-            maskColor="rgb(13,17,23,0.75)"
+            maskColor="rgba(224, 221, 212, 0.72)"
             zoomable
             pannable
           />
 
           <Panel
             position="top-left"
-            className="pointer-events-auto z-[10] m-2 flex min-h-0 max-h-[min(64vh,520px)] max-w-[min(100vw-1rem,20rem)] flex-col gap-2 overflow-y-auto overflow-x-hidden"
+            className="pointer-events-auto z-[10] m-2 flex min-h-0 max-h-[520px] max-w-[min(20rem,calc(100vw_-_2rem))] flex-col gap-2 overflow-y-auto overflow-x-hidden sm:max-h-[64vh]"
           >
-            <div className="rounded-lg border border-white/10 bg-[#161b22]/95 p-3 text-xs shadow-lg backdrop-blur-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-white/50">
+            <div className="rounded-lg border border-border bg-surface/95 p-3 text-xs shadow-lg backdrop-blur-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
                 Focus by defect cluster
               </p>
               <ul className="mt-2 flex max-h-44 flex-col gap-1 overflow-y-auto pr-1">
                 {defectRoots.length === 0 ? (
-                  <li className="text-xs text-white/45">No defect categories yet.</li>
+                  <li className="text-xs text-foreground-muted">No defect categories yet.</li>
                 ) : (
                   defectRoots.map((d) => (
                     <li key={d.id}>
@@ -582,12 +602,12 @@ function KnowledgeGraphCanvasInner() {
                         onClick={() => focusDefectCluster(d.id)}
                         className={`w-full rounded-md border px-2 py-1.5 text-left text-xs transition ${
                           clusterSeedId === d.id
-                            ? "border-[#2196f3] bg-[#2196f3]/20 font-medium text-white"
-                            : "border-transparent bg-black/30 text-white/90 hover:bg-black/45"
+                            ? "border-accent bg-accent/15 font-medium text-foreground"
+                            : "border-transparent bg-surface-muted/80 text-foreground hover:bg-surface-muted"
                         }`}
                       >
                         <span className="line-clamp-2">{d.data.label}</span>
-                        <span className="mt-0.5 block text-[10px] text-white/45">
+                        <span className="mt-0.5 block text-[10px] text-foreground-muted">
                           {expandDefectCluster(d.id, edges).size} nodes
                         </span>
                       </button>
@@ -599,38 +619,27 @@ function KnowledgeGraphCanvasInner() {
                 type="button"
                 onClick={() => setClusterSeedId(null)}
                 disabled={!clusterSeedId}
-                className="mt-2 w-full rounded-md border border-white/15 bg-[#0d1117] px-2 py-1.5 text-xs font-medium text-white/90 hover:bg-[#161b22] disabled:cursor-not-allowed disabled:opacity-40"
+                className="mt-2 w-full rounded-md border border-border bg-white px-2 py-1.5 text-xs font-medium text-foreground hover:bg-[var(--surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Show full graph
               </button>
             </div>
 
-            <div className="rounded-lg border border-white/10 bg-[#161b22]/95 p-3 text-[11px] text-white/55 shadow-lg backdrop-blur-sm">
-              <p className="font-medium text-white/90">Legend</p>
-              <ul className="mt-2 space-y-1.5">
-                <li className="flex items-center gap-2">
-                  <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-white/90"
-                    style={{ backgroundColor: GRAPH_NODE_STYLE.defect_category.fill }}
-                  />
-                  Defect category
-                </li>
-                <li className="flex items-center gap-2">
-                  <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-white/90"
-                    style={{ backgroundColor: GRAPH_NODE_STYLE.response_category.fill }}
-                  />
-                  Response category
-                </li>
-                <li className="flex items-center gap-2">
-                  <span
-                    className="h-3.5 w-3.5 shrink-0 rounded-sm border border-white/90"
-                    style={{ backgroundColor: GRAPH_NODE_STYLE.reference_doc.fill }}
-                  />
-                  Reference
-                </li>
+            <div className="rounded-lg border border-border bg-surface/95 p-3 text-[11px] text-foreground-muted shadow-lg backdrop-blur-sm">
+              <p className="font-medium text-foreground">Bubble colors</p>
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {MIND_MAP_BUBBLE_FILLS.map((c) => (
+                  <li key={c} title={c}>
+                    <span
+                      className="block h-6 w-6 shrink-0 rounded-full border border-border shadow-sm"
+                      style={{ backgroundColor: c }}
+                    />
+                  </li>
+                ))}
               </ul>
-              <p className="mt-2 text-[10px] text-white/40">Grey lines · correlation & reference links</p>
+              <p className="mt-2 text-[10px] text-foreground-muted">
+                Hue is picked from this set (stable per node). Lines: correlation & reference links.
+              </p>
             </div>
           </Panel>
 
@@ -639,7 +648,7 @@ function KnowledgeGraphCanvasInner() {
               type="button"
               disabled={selectedIds.length < 2}
               onClick={onMerge}
-              className="rounded-lg bg-[#2196f3] px-3 py-2 text-sm font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-40 hover:bg-[#1e88e5]"
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-foreground shadow transition-colors hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
             >
               Merge selected ({selectedIds.length})
             </button>
@@ -650,7 +659,7 @@ function KnowledgeGraphCanvasInner() {
               type="button"
               title="Zoom in"
               onClick={() => zoomIn({ duration: 200 })}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-[rgba(33,38,45,0.95)] text-white shadow-lg transition hover:border-white/40 hover:bg-[#30363d]"
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-foreground shadow-md transition hover:bg-surface-muted"
             >
               <Plus className="h-5 w-5" aria-hidden />
             </button>
@@ -658,7 +667,7 @@ function KnowledgeGraphCanvasInner() {
               type="button"
               title="Reset view"
               onClick={() => fitView({ padding: 0.2, duration: 320, maxZoom: 1.35 })}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-[rgba(33,38,45,0.95)] text-lg text-white shadow-lg transition hover:border-white/40 hover:bg-[#30363d]"
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-lg text-foreground shadow-md transition hover:bg-surface-muted"
             >
               <RotateCcw className="h-4 w-4" aria-hidden />
             </button>
@@ -666,7 +675,7 @@ function KnowledgeGraphCanvasInner() {
               type="button"
               title="Zoom out"
               onClick={() => zoomOut({ duration: 200 })}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-[rgba(33,38,45,0.95)] text-white shadow-lg transition hover:border-white/40 hover:bg-[#30363d]"
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface text-foreground shadow-md transition hover:bg-surface-muted"
             >
               <Minus className="h-5 w-5" aria-hidden />
             </button>

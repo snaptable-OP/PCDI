@@ -8,7 +8,7 @@ export default async function HistoricalDefectsPage({ params }: Props) {
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl">
       <div className="mb-2 text-sm text-[var(--muted-foreground)]">
-        <Link href="/historical" className="text-teal-700 hover:underline dark:text-teal-300">
+        <Link href="/historical" className="text-link hover:underline">
           ← Historical projects
         </Link>
       </div>

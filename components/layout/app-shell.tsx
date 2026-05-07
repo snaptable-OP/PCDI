@@ -13,15 +13,15 @@ import { APP_NAV } from "@/components/layout/nav-config";
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-svh w-full max-w-full grid-cols-1 items-start md:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-svh max-h-screen w-full min-w-0 overflow-y-auto border-r border-border bg-surface md:block">
-        <div className="border-b border-border px-4 py-5">
+      <aside className="sticky top-0 hidden h-svh max-h-screen w-full min-w-0 overflow-y-auto border-r border-[color:var(--sidebar-border)] bg-sidebar md:block">
+        <div className="border-b border-[color:var(--sidebar-border)] px-4 py-5">
           <Link
             href="/"
-            className="text-lg font-semibold tracking-tight text-teal-700 dark:text-teal-300"
+            className="text-lg font-semibold tracking-tight text-[color:var(--sidebar-heading-text)]"
           >
             PCDI
           </Link>
-          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          <p className="mt-1 text-xs leading-snug text-[color:var(--sidebar-subtitle-text)]">
             Post-Completion Defects Intelligence
           </p>
         </div>
@@ -30,22 +30,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link
               key={href}
               href={href}
-              className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm leading-snug text-foreground outline-none ring-[var(--ring)] transition hover:bg-surface-muted focus-visible:ring-2 dark:hover:bg-slate-800/80"
+              className="flex min-h-[44px] items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm leading-snug text-[color:var(--sidebar-nav-text)] outline-none ring-white/25 transition hover:bg-[color:var(--sidebar-nav-hover-bg)] hover:text-[color:var(--sidebar-nav-hover-text)] focus-visible:ring-2"
             >
-              <Icon className="h-4 w-4 shrink-0 text-teal-600 dark:text-teal-400" aria-hidden />
+              <Icon className="h-4 w-4 shrink-0 text-[color:var(--sidebar-icon)]" aria-hidden />
               <span className="min-w-0 break-words">{label}</span>
             </Link>
           ))}
         </nav>
       </aside>
-      <div className="flex min-h-svh min-w-0 w-full max-w-full flex-col">
+      <div className="flex min-h-svh min-w-0 w-full max-w-full flex-col bg-[color:var(--main-column-bg)]">
         <header
-          className="sticky top-0 z-10 border-b border-border bg-[color:color-mix(in_srgb,var(--surface)_93%,transparent)] px-3 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-[color:color-mix(in_srgb,var(--surface)_88%,transparent)] md:hidden"
+          className="sticky top-0 z-10 border-b border-border bg-[color:color-mix(in_srgb,var(--main-column-bg)_93%,transparent)] px-3 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-[color:color-mix(in_srgb,var(--main-column-bg)_88%,transparent)] md:hidden"
         >
           <div className="mb-2 px-1">
             <Link
               href="/"
-              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-semibold text-teal-700 outline-none ring-[var(--ring)] focus-visible:ring-2 dark:text-teal-300"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-semibold text-heading outline-none ring-[var(--ring)] focus-visible:ring-2"
             >
               PCDI
             </Link>

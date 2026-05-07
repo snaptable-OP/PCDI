@@ -6,7 +6,7 @@ export default function DashboardPage() {
   return (
     <div className="mx-auto w-full min-w-0 max-w-4xl py-8">
       <div className="mb-2 text-sm text-[var(--muted-foreground)]">
-        <Link href="/" className="text-teal-700 hover:underline dark:text-teal-300">
+        <Link href="/" className="text-link hover:underline">
           ← Home
         </Link>
       </div>
@@ -23,7 +23,7 @@ export default function DashboardPage() {
       <div className="mt-10 flex flex-wrap gap-3 border-t border-[var(--border-subtle)] pt-8">
         <Link
           href="/historical"
-          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
         >
           Historical Analysis
         </Link>

@@ -30,7 +30,7 @@ export function ProjectMetadataStep({ projectId, basePath }: ProjectMetadataStep
     return (
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-[var(--foreground)]">
         <p>Project not found.</p>
-        <Link href={basePath} className="mt-2 inline-block text-teal-700 underline dark:text-teal-300">
+        <Link href={basePath} className="mt-2 inline-block text-link underline">
           Back to projects
         </Link>
       </div>
@@ -53,14 +53,14 @@ export function ProjectMetadataStep({ projectId, basePath }: ProjectMetadataStep
       location: String(fd.get("location") ?? "").trim(),
       structuralType: fd.get("structuralType") as StructuralType,
     });
-    router.push(`${basePath}/${projectId}/setup`);
+    router.push(`${basePath}/${projectId}/upload`);
   }
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-xl">
       <IngestionFlowNav currentStep={2} className="mb-6" />
       <div className="mb-2 text-sm text-[var(--muted-foreground)]">
-        <Link href={basePath} className="text-teal-700 hover:underline dark:text-teal-300">
+        <Link href={basePath} className="text-link hover:underline">
           ← Projects
         </Link>
       </div>
@@ -81,7 +81,7 @@ export function ProjectMetadataStep({ projectId, basePath }: ProjectMetadataStep
           </Link>
           <button
             type="submit"
-            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
           >
             Save and continue to upload
           </button>

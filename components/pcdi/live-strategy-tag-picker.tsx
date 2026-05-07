@@ -8,7 +8,7 @@ import { resolveLiveResponseStrategy } from "@/lib/pcdi/live-rows";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
 
 const TAG_PALETTE = [
-  "bg-teal-700 text-white dark:bg-teal-600",
+  "bg-accent text-accent-foreground",
   "bg-indigo-800 text-white dark:bg-indigo-700",
   "bg-amber-700 text-white dark:bg-amber-700",
   "bg-rose-700 text-white dark:bg-rose-800",

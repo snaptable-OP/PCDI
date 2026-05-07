@@ -38,7 +38,7 @@ export function IngestionFlowNav({ currentStep, className = "" }: IngestionFlowN
                   singlePage
                     ? "text-[var(--muted-foreground)]"
                     : active
-                      ? "font-semibold text-teal-800 dark:text-teal-200"
+                      ? "font-semibold text-foreground-emphasis"
                       : done
                         ? "text-[var(--muted-foreground)]"
                         : "text-[var(--muted-foreground)]/80"

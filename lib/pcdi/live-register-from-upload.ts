@@ -50,6 +50,8 @@ export function buildLiveRowsFromUploadSession(projectId: string): HistoricalDef
       extractedFromDescription: extractDocCitationsFromDefectDescription(defectDescription),
     });
 
+    const excelSheetRow = upload.headerRow + 1 + i;
+
     return {
       id: `live-${projectId}-r${i}`,
       defectDescription,
@@ -58,6 +60,7 @@ export function buildLiveRowsFromUploadSession(projectId: string): HistoricalDef
       responseCategory: "",
       referenceDocuments: referenceBundle,
       extractedDocCitations: referenceBundle,
+      excelSheetRow,
     };
   });
 

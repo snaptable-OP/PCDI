@@ -49,7 +49,7 @@ export function DefectsAnalysisProgress() {
         aria-hidden
       >
         <div
-          className="h-full min-w-0 rounded-full bg-teal-600 transition-[width] dark:bg-teal-400"
+          className="h-full min-w-0 rounded-full bg-accent transition-[width]"
           style={{ width: `${progress}%` }}
         />
       </div>

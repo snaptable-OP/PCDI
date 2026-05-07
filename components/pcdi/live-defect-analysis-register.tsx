@@ -12,8 +12,10 @@ import {
   getLiveRegisterBaseRows,
   getLiveRegisterMergedRows,
   getLiveSelectionFingerprint,
+  notifyLiveSelectionsUpdated,
 } from "@/lib/pcdi/live-rows";
 import { clearHistoricalAiColumnMappingSession } from "@/lib/pcdi/map-session";
+import { clearBillieMergeSession } from "@/lib/pcdi/billie-merge-session";
 import {
   clearLiveSelectionState,
   readLiveSelectionState,
@@ -62,6 +64,7 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
         confirmed: nextConfirmed,
         fingerprint,
       });
+      notifyLiveSelectionsUpdated(projectId);
     },
     [projectId, fingerprint],
   );
@@ -104,6 +107,7 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
       return;
     }
     clearUploadPayload(projectId);
+    clearBillieMergeSession(projectId);
     clearHistoricalAiColumnMappingSession(projectId);
     clearLiveSelectionState(projectId);
     removeProject(projectId);
@@ -158,12 +162,18 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
         </div>
       </div>
 
-      <LivePivotSummary baseRows={rows} selections={selections} bulkConfirmed={confirmed} />
+      <LivePivotSummary
+        baseRows={rows}
+        selections={selections}
+        bulkConfirmed={confirmed}
+        projectId={projectId}
+        basePath={basePath}
+      />
 
       {rows.length === 0 ? (
         <p className="text-sm text-[var(--muted-foreground)]">
           No register rows for this project yet. Use{" "}
-          <Link href="/live/new" className="font-medium text-teal-700 hover:underline dark:text-teal-300">
+          <Link href="/live/new" className="font-medium text-link hover:underline">
             New project setup
           </Link>{" "}
           to upload a file, map columns, and run analysis.
@@ -176,7 +186,7 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
               type="button"
               disabled={!allRowsResolvable}
               onClick={onConfirm}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
             >
               Confirm response strategy selection
             </button>
@@ -205,7 +215,7 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
                         onClick={() => setExcelRowId(row.id)}
                         className="w-full text-left hover:underline"
                       >
-                        <span className="line-clamp-4 whitespace-pre-wrap text-teal-800 dark:text-teal-200">
+                        <span className="line-clamp-4 whitespace-pre-wrap text-foreground-emphasis">
                           {row.defectDescription || "—"}
                         </span>
                       </button>

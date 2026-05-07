@@ -9,7 +9,7 @@ const RESPONSE_TAG_CLASSES = [
   "bg-amber-600 text-white dark:bg-amber-700 dark:text-white",
   "bg-emerald-800 text-white dark:bg-emerald-900 dark:text-white",
   "bg-violet-800 text-white dark:bg-violet-900 dark:text-white",
-  "bg-sky-900 text-white dark:bg-sky-950 dark:text-white",
+  "bg-water-deep-pool text-white dark:bg-water-quarry-pool dark:text-white",
   "bg-orange-700 text-white dark:bg-orange-800 dark:text-white",
   "bg-fuchsia-900 text-white dark:bg-fuchsia-950 dark:text-white",
 ] as const;

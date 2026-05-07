@@ -12,7 +12,7 @@ export function HistoricalMapColumnsView({ projectId, basePath, mode = "historic
   const [state, setState] = useState<
     | "pending"
     | "missing-upload"
-    | { columns: string[]; fileName: string; headerRow: number }
+    | { columns: string[]; fileName: string; headerRow: number; defectFileId?: string }
   >("pending");
 
   useEffect(() => {
@@ -25,6 +25,7 @@ export function HistoricalMapColumnsView({ projectId, basePath, mode = "historic
       columns: p.columns,
       fileName: p.fileName,
       headerRow: p.headerRow,
+      ...(p.defectFileId ? { defectFileId: p.defectFileId } : {}),
     });
   }, [projectId]);
 
@@ -39,10 +40,10 @@ export function HistoricalMapColumnsView({ projectId, basePath, mode = "historic
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-[var(--foreground)]">
         <p>No upload found for this project in this tab.</p>
         <Link
-          href={`${basePath}/${projectId}/setup`}
-          className="mt-2 inline-block font-medium text-teal-700 underline hover:underline dark:text-teal-300"
+          href={`${basePath}/${projectId}/upload`}
+          className="mt-2 inline-block font-medium text-link underline hover:underline"
         >
-          Go to project setup
+          Go to spreadsheet upload
         </Link>
       </div>
     );
@@ -52,14 +53,14 @@ export function HistoricalMapColumnsView({ projectId, basePath, mode = "historic
     <div className="mx-auto w-full min-w-0 max-w-5xl">
       <IngestionFlowNav currentStep={4} className="mb-6" />
       <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--muted-foreground)]">
-        <Link href={basePath} className="text-teal-700 hover:underline dark:text-teal-300">
+        <Link href={basePath} className="text-link hover:underline">
           ← Projects
         </Link>
         <Link
-          href={`${basePath}/${projectId}/setup`}
-          className="text-teal-700 hover:underline dark:text-teal-300"
+          href={`${basePath}/${projectId}/upload`}
+          className="text-link hover:underline"
         >
-          ← Project setup
+          ← Spreadsheet upload
         </Link>
       </div>
       <h1 className="text-2xl font-semibold text-[var(--foreground)]">Column selection</h1>
@@ -74,6 +75,7 @@ export function HistoricalMapColumnsView({ projectId, basePath, mode = "historic
           source={{ fileName: state.fileName, headerRow: state.headerRow }}
           continueHref={`${basePath}/${projectId}/defects`}
           continueLabel="Analyse Defects"
+          defectFileId={state.defectFileId}
           mode={mode}
         />
       </div>

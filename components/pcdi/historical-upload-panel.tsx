@@ -5,8 +5,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { FileSpreadsheet, Upload } from "lucide-react";
 import { IngestionFlowNav } from "@/components/pcdi/ingestion-flow-nav";
+import {
+  extractColumnNamesFromBackendPayload,
+  extractDefectFileIdFromBackendPayload,
+} from "@/lib/pcdi/extract-backend-columns";
 import { parseFirstSheetDataRows, parseSheetColumnHeaders } from "@/lib/pcdi/parse-xlsx-headers";
 import type { PcdiUploadSessionPayload } from "@/lib/pcdi/types";
+import { clearBillieMergeSession } from "@/lib/pcdi/billie-merge-session";
+import { clearHistoricalAiColumnMappingSession } from "@/lib/pcdi/map-session";
 import { clearUploadPayload, writeUploadPayload } from "@/lib/pcdi/upload-session";
 
 type HistoricalUploadPanelProps = {
@@ -57,6 +63,7 @@ export function HistoricalUploadPanel({
   const [payload, setPayload] = useState<PcdiUploadSessionPayload | null>(null);
   const [headerRow, setHeaderRow] = useState(1);
   const [stagedFile, setStagedFile] = useState<File | null>(null);
+  const [backendJsonCopied, setBackendJsonCopied] = useState(false);
 
   const runParse = useCallback(
     async (file: File, row: number) => {
@@ -83,13 +90,86 @@ export function HistoricalUploadPanel({
           basePath === "/live"
             ? parseFirstSheetDataRows(buf, rowUsed).slice(0, LIVE_UPLOAD_MAX_DATA_ROWS)
             : undefined;
+
+        const form = new FormData();
+        form.append("file", file);
+        form.append("projectId", projectId);
+        form.append("headerRow", String(rowUsed));
+        const s3Res = await fetch("/api/upload-xlsx", { method: "POST", body: form });
+        if (!s3Res.ok) {
+          const errBody = (await s3Res.json().catch(() => ({}))) as { error?: string };
+          setPayload(null);
+          onPayloadChange?.(null);
+          clearBillieMergeSession(projectId);
+          clearUploadPayload(projectId);
+          setError(
+            errBody.error ?? "Could not store the file in Amazon S3. Check .env.local and your network, then try again.",
+          );
+          return;
+        }
+        const s3 = (await s3Res.json()) as {
+          fileUrl: string;
+          headerRow: number;
+          presignedUrlExpiresInSeconds: number;
+          bucket: string;
+          key: string;
+          region: string;
+        };
+
+        const handoffRes = await fetch("/api/save-excel-content", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            fileUrl: s3.fileUrl,
+            headerNum: s3.headerRow,
+          }),
+        });
+        if (!handoffRes.ok) {
+          const errBody = (await handoffRes.json().catch(() => ({}))) as {
+            error?: string;
+            cause?: string;
+            hint?: string;
+          };
+          setPayload(null);
+          onPayloadChange?.(null);
+          clearBillieMergeSession(projectId);
+          clearUploadPayload(projectId);
+          setError(
+            [errBody.error, errBody.cause, errBody.hint]
+              .filter(Boolean)
+              .join("\n\n") ||
+              "Could not register the file with the analysis server. Check the network and try again.",
+          );
+          return;
+        }
+
+        const handoffJson = (await handoffRes.json()) as {
+          ok?: boolean;
+          data?: unknown;
+          skipped?: boolean;
+        };
+        const fromBackend =
+          handoffJson.data != null ? extractColumnNamesFromBackendPayload(handoffJson.data) : null;
+        const columnsUsed = fromBackend && fromBackend.length > 0 ? fromBackend : columns;
+        const defectFileId =
+          handoffJson.data != null ? extractDefectFileIdFromBackendPayload(handoffJson.data) : null;
+
         const next: PcdiUploadSessionPayload = {
           projectId,
           fileName: file.name,
-          headerRow: rowUsed,
-          columns,
+          headerRow: s3.headerRow,
+          columns: columnsUsed,
+          s3Bucket: s3.bucket,
+          s3Key: s3.key,
+          s3Region: s3.region,
+          fileUrl: s3.fileUrl,
+          presignedUrlExpiresInSeconds: s3.presignedUrlExpiresInSeconds,
+          ...(defectFileId ? { defectFileId } : {}),
           ...(dataRowsRaw && dataRowsRaw.length > 0 ? { dataRows: dataRowsRaw } : {}),
         };
+        clearBillieMergeSession(projectId);
+        clearHistoricalAiColumnMappingSession(projectId);
         writeUploadPayload(next);
         setPayload(next);
         onPayloadChange?.(next);
@@ -97,6 +177,7 @@ export function HistoricalUploadPanel({
       } catch {
         setPayload(null);
         onPayloadChange?.(null);
+        clearBillieMergeSession(projectId);
         clearUploadPayload(projectId);
         setError("Could not read that file. Try a different .xlsx export.");
       } finally {
@@ -112,6 +193,7 @@ export function HistoricalUploadPanel({
       setError(null);
       setPayload(null);
       onPayloadChange?.(null);
+      clearBillieMergeSession(projectId);
       clearUploadPayload(projectId);
     },
     [projectId, onPayloadChange],
@@ -132,7 +214,7 @@ export function HistoricalUploadPanel({
 
   function onContinue() {
     if (!payload) return;
-    if (!isEmbedded) router.push(`${basePath}/${projectId}/setup`);
+    if (!isEmbedded) router.push(`${basePath}/${projectId}/upload#ingest-step-columns`);
   }
 
   function onParseClick() {
@@ -146,6 +228,7 @@ export function HistoricalUploadPanel({
     if (payload) {
       setPayload(null);
       onPayloadChange?.(null);
+      clearBillieMergeSession(projectId);
       clearUploadPayload(projectId);
     }
   }
@@ -157,12 +240,12 @@ export function HistoricalUploadPanel({
       {isEmbedded ? null : <IngestionFlowNav currentStep={3} className="mb-6" />}
       {isEmbedded ? null : (
         <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--muted-foreground)]">
-          <Link href={basePath} className="text-teal-700 hover:underline dark:text-teal-300">
+          <Link href={basePath} className="text-link hover:underline">
             ← Projects
           </Link>
           <Link
             href={`${basePath}/${projectId}/setup`}
-            className="text-teal-700 hover:underline dark:text-teal-300"
+            className="text-link hover:underline"
           >
             ← Project setup
           </Link>
@@ -191,16 +274,16 @@ export function HistoricalUploadPanel({
         onDrop={onDrop}
         className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-14 transition ${
           dragOver
-            ? "border-teal-500 bg-[var(--accent-muted)]/40"
-            : "border-[var(--border)] bg-[var(--surface)] hover:border-teal-600/50"
+            ? "border-accent bg-[var(--accent-muted)]/40"
+            : "border-[var(--border)] bg-[var(--surface)] hover:border-accent/50"
         }`}
       >
-        <FileSpreadsheet className="h-10 w-10 text-teal-600 dark:text-teal-400" aria-hidden />
+        <FileSpreadsheet className="h-10 w-10 text-accent" aria-hidden />
         <p className="mt-3 text-center text-sm font-medium text-[var(--foreground)]">
           Drag and drop an .xlsx file here
         </p>
         <p className="mt-1 text-center text-xs text-[var(--muted-foreground)]">or</p>
-        <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90">
+        <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active">
           <Upload className="h-4 w-4" />
           Browse files
           <input
@@ -239,7 +322,7 @@ export function HistoricalUploadPanel({
               type="button"
               onClick={onParseClick}
               disabled={busy}
-              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-50"
             >
               Parse
             </button>
@@ -248,7 +331,9 @@ export function HistoricalUploadPanel({
       ) : null}
 
       {busy ? (
-        <p className="mt-4 text-sm text-[var(--muted-foreground)]">Reading workbook…</p>
+        <p className="mt-4 text-sm text-[var(--muted-foreground)]">
+          Reading workbook, uploading to S3, and notifying the analysis server…
+        </p>
       ) : null}
       {error ? (
         <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">
@@ -259,12 +344,59 @@ export function HistoricalUploadPanel({
       {payload ? (
         <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/50 p-4">
           <p className="text-sm font-medium text-[var(--foreground)]">{payload.fileName}</p>
-          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+          {payload.s3Key ? (
+            <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+              Stored in S3: <span className="font-mono text-[11px] text-[var(--foreground)]">{payload.s3Bucket}</span>{" "}
+              · <span className="font-mono text-[11px] break-all text-[var(--foreground)]">{payload.s3Key}</span>
+            </p>
+          ) : null}
+          {payload.fileUrl ? (
+            <div className="mt-3 rounded-md border border-[var(--border)] bg-[var(--background)] p-3">
+              <p className="text-xs font-medium text-[var(--foreground)]">For backend (download URL + header row)</p>
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Clipboard JSON matches <code className="rounded bg-[var(--surface)] px-1">POST …/saveExcelContent</code>:{" "}
+                <code className="rounded bg-[var(--surface)] px-1">projectId</code>,{" "}
+                <code className="rounded bg-[var(--surface)] px-1">fileUrl</code>,{" "}
+                <code className="rounded bg-[var(--surface)] px-1">headerNum</code> (1-based row of column names).
+                {payload.presignedUrlExpiresInSeconds != null
+                  ? ` — presigned link expires in ${Math.round(
+                      payload.presignedUrlExpiresInSeconds / 3600,
+                    )}h`
+                  : null}
+                .
+              </p>
+              <p className="mt-2 break-all font-mono text-[11px] leading-relaxed text-[var(--foreground)]">
+                {payload.fileUrl}
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!payload.fileUrl) return;
+                  const forBackend = {
+                    projectId,
+                    fileUrl: payload.fileUrl,
+                    headerNum: payload.headerRow,
+                  };
+                  try {
+                    await navigator.clipboard.writeText(JSON.stringify(forBackend, null, 2));
+                    setBackendJsonCopied(true);
+                    window.setTimeout(() => setBackendJsonCopied(false), 2500);
+                  } catch {
+                    setError("Could not copy to clipboard. Select the URL and copy manually.");
+                  }
+                }}
+                className="mt-2 rounded-md bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active"
+              >
+                {backendJsonCopied ? "Copied JSON" : "Copy JSON for backend"}
+              </button>
+            </div>
+          ) : null}
+          <p className="mt-3 text-xs text-[var(--muted-foreground)]">
             Header row <span className="font-medium text-[var(--foreground)]">{payload.headerRow}</span> ·{" "}
             {payload.columns.length} column{payload.columns.length === 1 ? "" : "s"} detected
           </p>
           {isEmbedded ? (
-            <p className="mt-3 text-xs font-medium text-teal-800 dark:text-teal-200">
+            <p className="mt-3 text-xs font-medium text-foreground-emphasis">
               Use <strong>Column selection</strong> below to choose columns, then continue.
             </p>
           ) : null}
@@ -277,7 +409,7 @@ export function HistoricalUploadPanel({
             type="button"
             disabled={!payload || busy}
             onClick={onContinue}
-            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
           >
             Continue to column mapper
           </button>

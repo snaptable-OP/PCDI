@@ -7,7 +7,12 @@ import {
   readHistoricalAiColumnMapping,
   writeHistoricalAiColumnMapping,
 } from "@/lib/pcdi/map-session";
-import type { HistoricalColumnAiMapping } from "@/lib/pcdi/types";
+import {
+  rowSignatureFromRows,
+  writeBillieMergeSession,
+} from "@/lib/pcdi/billie-merge-session";
+import { notifyLiveSelectionsUpdated } from "@/lib/pcdi/live-rows";
+import type { HistoricalColumnAiMapping, HistoricalDefectTableRow } from "@/lib/pcdi/types";
 
 export type ColumnMapperProps = {
   projectId: string;
@@ -18,6 +23,8 @@ export type ColumnMapperProps = {
   continueLabel: string;
   /** Live vs historical: copy only. */
   mode?: "historical" | "live";
+  /** From parse / saveExcelContent; sent as `defectFileId` in `POST /api/defect-files/analyze`. */
+  defectFileId?: string | null;
   /** If set, called when the user finishes instead of in-app `router.push(continueHref)` (e.g. one-page flow). */
   onFinish?: () => void;
 };
@@ -47,10 +54,14 @@ export function ColumnMapper({
   source,
   continueHref,
   continueLabel,
-  mode: _mode = "historical",
+  mode = "historical",
+  defectFileId,
   onFinish,
 }: ColumnMapperProps) {
   const router = useRouter();
+
+  const [analyzeBusy, setAnalyzeBusy] = useState(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   const [selectedDefectColumns, setSelectedDefectColumns] = useState<Set<string>>(() => {
     const m = mergeHistoricalAiMappingWithColumns(columns, readHistoricalAiColumnMapping(projectId));
@@ -104,7 +115,7 @@ export function ColumnMapper({
       <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)]">
         <div className="grid grid-cols-1 border-b border-[var(--border)] bg-[var(--surface-muted)]/50 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto]">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">Spreadsheet column</p>
-          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-teal-800 md:mt-0 md:text-right dark:text-teal-200">
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-foreground-emphasis md:mt-0 md:text-right">
             Use for defect categorisation
           </p>
         </div>
@@ -130,16 +141,125 @@ export function ColumnMapper({
       </div>
 
       <div className="flex flex-col items-end gap-2 border-t border-[var(--border-subtle)] pt-6">
+        {analyzeError ? (
+          <p className="max-w-full text-right text-sm text-red-600 dark:text-red-400" role="alert">
+            {analyzeError}
+          </p>
+        ) : null}
         <button
           type="button"
-          disabled={!complete}
-          onClick={() => {
-            if (onFinish) onFinish();
-            else router.push(continueHref);
+          disabled={!complete || analyzeBusy}
+          onClick={async () => {
+            setAnalyzeError(null);
+            const headersToMerge = columns.filter((c) => selectedDefectColumns.has(c));
+            const id = defectFileId?.trim();
+            if (!id) {
+              setAnalyzeError(
+                "Missing defect file id from the analysis server. Re-upload and parse the spreadsheet, or ensure saveExcelContent returns a defect file id.",
+              );
+              return;
+            }
+            setAnalyzeBusy(true);
+            try {
+              const res = await fetch("/api/defect-files/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  defectFileId: id,
+                  headersToMerge,
+                }),
+              });
+              const body = (await res.json().catch(() => ({}))) as { error?: string };
+              if (!res.ok) {
+                setAnalyzeError(body.error ?? `Analysis request failed (${res.status}).`);
+                return;
+              }
+
+              if (mode !== "live") {
+                if (onFinish) onFinish();
+                else router.push(continueHref);
+                return;
+              }
+
+              const maxAttempts = 200;
+              const delayMs = 3000;
+              let mergeFileUrl: string | null = null;
+              let mergeFileName: string | undefined;
+
+              for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                const st = await fetch(`/api/defect-files/${encodeURIComponent(id)}/status`, {
+                  cache: "no-store",
+                });
+                const sj = (await st.json().catch(() => ({}))) as {
+                  error?: string;
+                  result?: {
+                    isProcessed?: string;
+                    mergeFileUrl?: string;
+                    mergeFileName?: string;
+                  };
+                };
+                if (!st.ok) {
+                  setAnalyzeError(sj.error ?? `Status check failed (${st.status}).`);
+                  return;
+                }
+                const proc = sj.result?.isProcessed?.toUpperCase() ?? "";
+                if (proc === "SUCCESS" && sj.result?.mergeFileUrl) {
+                  mergeFileUrl = sj.result.mergeFileUrl;
+                  mergeFileName = sj.result.mergeFileName;
+                  break;
+                }
+                if (proc === "FAILED" || proc === "ERROR" || proc === "FAILURE") {
+                  setAnalyzeError("Defect analysis failed on the server.");
+                  return;
+                }
+                await new Promise((r) => setTimeout(r, delayMs));
+              }
+
+              if (!mergeFileUrl) {
+                setAnalyzeError("Analysis is taking longer than expected. Try again later.");
+                return;
+              }
+
+              const parseRes = await fetch("/api/defect-files/parse-merge", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId, mergeFileUrl }),
+              });
+              const pj = (await parseRes.json().catch(() => ({}))) as {
+                error?: string;
+                rows?: HistoricalDefectTableRow[];
+              };
+              if (!parseRes.ok || !pj.rows?.length) {
+                setAnalyzeError(pj.error ?? "Could not parse the merged spreadsheet.");
+                return;
+              }
+
+              writeBillieMergeSession({
+                projectId,
+                defectFileId: id,
+                mergeFileUrl,
+                mergeFileName,
+                rows: pj.rows,
+                rowSignature: rowSignatureFromRows(pj.rows),
+                updatedAt: new Date().toISOString(),
+              });
+              notifyLiveSelectionsUpdated(projectId);
+
+              if (onFinish) onFinish();
+              else router.push(continueHref);
+            } catch {
+              setAnalyzeError("Could not reach the server. Check your network and try again.");
+            } finally {
+              setAnalyzeBusy(false);
+            }
           }}
-          className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {continueLabel}
+          {analyzeBusy
+            ? mode === "live"
+              ? "Analysing defects…"
+              : "Starting analysis…"
+            : continueLabel}
         </button>
       </div>
     </div>
