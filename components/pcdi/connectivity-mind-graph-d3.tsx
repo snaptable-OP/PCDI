@@ -6,12 +6,14 @@
  */
 
 import * as d3 from "d3";
+import { FileDown } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   aggregateDefectsByCategory,
   getDefectRowsForVisualisation,
   type CategoryAggregate,
 } from "@/lib/pcdi/defect-category-aggregation";
+import { downloadProposedResponsesEnrichedXlsx } from "@/lib/pcdi/export-proposed-responses-xlsx";
 import { hashString } from "@/lib/pcdi/hash";
 import {
   formatExplicitStrategyBreakdownSummary,
@@ -73,7 +75,14 @@ function truncateChipLabel(s: string, max = 22): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
+export function ConnectivityMindGraphD3({
+  projectId,
+  defectFileId = null,
+}: {
+  projectId: string;
+  /** When set, graph + strategy chips use this Billie defect file scope (per analysis). */
+  defectFileId?: string | null;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<d3.Selection<SVGSVGElement, unknown, null, undefined> | null>(null);
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
@@ -82,6 +91,10 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
 
   const [selectedAggregate, setSelectedAggregate] = useState<CategoryAggregate | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** All categories: mock generated responses keyed by register row id (persists when switching sidebar category). */
+  const [generatedResponsesByRowId, setGeneratedResponsesByRowId] = useState<Record<string, string>>({});
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportHint, setExportHint] = useState<string | null>(null);
 
   pickRef.current = (a) => {
     setSelectedAggregate(a);
@@ -91,28 +104,61 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
   const uploadFp = getLiveUploadFingerprint(projectId);
   /** Invalidate graph when merge rows/categories change — not only row ids (same count could hide updates). */
   const vizRowsSig = useMemo(() => {
-    const rows = getDefectRowsForVisualisation(projectId);
+    const rows = getDefectRowsForVisualisation(projectId, defectFileId);
     const idSig = hashString(rows.map((r) => r.id).join("\0")).slice(0, 24);
     const bodySig = hashString(
       rows.map((r) => `${r.defectCategory}\t${r.defectDescription}`).join("\n"),
     ).slice(0, 24);
-    return `${uploadFp ?? "demo"}:${rows.length}:${idSig}:${bodySig}`;
-  }, [projectId, uploadFp]);
+    const scope = defectFileId?.trim() ?? "legacy";
+    return `${scope}:${uploadFp ?? "demo"}:${rows.length}:${idSig}:${bodySig}`;
+  }, [projectId, defectFileId, uploadFp]);
 
   const [selectionRev, setSelectionRev] = useState(0);
   useEffect(() => {
     const onSel = (e: Event) => {
-      const d = (e as CustomEvent<{ projectId?: string }>).detail;
-      if (d?.projectId === projectId) setSelectionRev((n) => n + 1);
+      const d = (e as CustomEvent<{ projectId?: string; defectFileId?: string | null }>).detail;
+      if (d?.projectId !== projectId) return;
+      const incoming = d.defectFileId ?? null;
+      const scope = defectFileId?.trim() ?? null;
+      if (scope && incoming != null && incoming !== scope) return;
+      setSelectionRev((n) => n + 1);
     };
     window.addEventListener("pcdi-live-selections-updated", onSel);
     return () => window.removeEventListener("pcdi-live-selections-updated", onSel);
-  }, [projectId]);
+  }, [projectId, defectFileId]);
 
   useEffect(() => {
     setSelectedAggregate(null);
     setSidebarOpen(false);
-  }, [projectId]);
+    setGeneratedResponsesByRowId({});
+    setExportHint(null);
+  }, [projectId, defectFileId]);
+
+  const onExportAllExcel = useCallback(async () => {
+    const rows = getDefectRowsForVisualisation(projectId, defectFileId);
+    setExportBusy(true);
+    setExportHint(null);
+    try {
+      const result = await downloadProposedResponsesEnrichedXlsx({
+        projectId,
+        defectFileId,
+        rows,
+        generatedResponsesByRowId,
+        downloadBasename: "defect-proposed-responses",
+      });
+      if (!result.ok) {
+        setExportHint(result.error);
+        return;
+      }
+      setExportHint(
+        `Downloaded original upload: “proposed response” on ${result.rowCount} row${result.rowCount === 1 ? "" : "s"} (${result.withTextCount} with generated text).`,
+      );
+    } catch (e) {
+      setExportHint(e instanceof Error ? e.message : "Export failed.");
+    } finally {
+      setExportBusy(false);
+    }
+  }, [projectId, defectFileId, generatedResponsesByRowId]);
 
   const zoomIn = useCallback(() => {
     const svg = svgRef.current;
@@ -164,9 +210,9 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
 
       teardown();
 
-      const aggregates = aggregateDefectsByCategory(projectId);
-      const fpSel = getLiveSelectionFingerprint(projectId);
-      const selStored = readLiveSelectionState(projectId);
+      const aggregates = aggregateDefectsByCategory(projectId, defectFileId);
+      const fpSel = getLiveSelectionFingerprint(projectId, defectFileId);
+      const selStored = readLiveSelectionState(projectId, defectFileId);
       const selections = selStored?.fingerprint === fpSel ? selStored.selections ?? {} : {};
 
       const counts = aggregates.map((a) => a.count);
@@ -395,7 +441,7 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
       lastW = -1;
       lastH = -1;
     };
-  }, [projectId, vizRowsSig, selectionRev]);
+  }, [projectId, defectFileId, vizRowsSig, selectionRev]);
 
   const closeSidebar = useCallback(() => {
     setSidebarOpen(false);
@@ -408,6 +454,21 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
         className="relative flex h-full min-h-0 w-full flex-col bg-white"
       >
         <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="absolute right-4 top-4 z-[6] flex max-w-[min(100%-2rem,20rem)] flex-col items-end gap-1 md:right-6 md:top-6">
+            <button
+              type="button"
+              disabled={exportBusy}
+              onClick={() => void onExportAllExcel()}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-semibold text-foreground shadow-sm transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileDown className="h-4 w-4 shrink-0" aria-hidden />
+              {exportBusy ? "Exporting…" : "Export Excel"}
+            </button>
+            {exportHint ? (
+              <p className="text-right text-[11px] leading-snug text-shale-wet-slate/90">{exportHint}</p>
+            ) : null}
+          </div>
+
           <div className="zoom-controls absolute bottom-4 right-4 z-[5] flex flex-col gap-2 md:bottom-6 md:right-6">
             <button
               type="button"
@@ -444,7 +505,7 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
             className="relative min-h-0 flex-1 cursor-grab overflow-hidden bg-white active:cursor-grabbing"
           />
 
-          <p className="pointer-events-none absolute bottom-3 left-3 right-24 z-[1] text-[11px] leading-snug text-shale-wet-slate/70 md:right-auto md:text-xs">
+          <p className="pointer-events-none absolute bottom-3 left-3 right-24 z-[1] text-[11px] leading-snug text-shale-wet-slate/70 md:right-56 md:text-xs">
             Scroll to zoom · Drag background to pan · Drag nodes · Click category for sidebar
           </p>
         </div>
@@ -455,6 +516,9 @@ export function ConnectivityMindGraphD3({ projectId }: { projectId: string }) {
         onClose={closeSidebar}
         aggregate={selectedAggregate}
         projectId={projectId}
+        defectFileId={defectFileId}
+        generatedResponsesByRowId={generatedResponsesByRowId}
+        setGeneratedResponsesByRowId={setGeneratedResponsesByRowId}
       />
     </>
   );

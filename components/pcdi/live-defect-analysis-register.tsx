@@ -172,11 +172,11 @@ export function LiveDefectAnalysisRegister({ projectId, project, basePath }: Liv
 
       {rows.length === 0 ? (
         <p className="text-sm text-[var(--muted-foreground)]">
-          No register rows for this project yet. Use{" "}
-          <Link href="/live/new" className="font-medium text-link hover:underline">
-            New project setup
-          </Link>{" "}
-          to upload a file, map columns, and run analysis.
+          No register rows for this project yet. Open{" "}
+          <Link href="/live" className="font-medium text-link hover:underline">
+            Live analysis
+          </Link>
+          , create an analysis for this project (upload), then map columns and run analysis.
         </p>
       ) : (
         <>

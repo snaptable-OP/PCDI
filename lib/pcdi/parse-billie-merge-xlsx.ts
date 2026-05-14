@@ -27,6 +27,53 @@ function pickColumn(headers: string[], patterns: RegExp[]): string | null {
   return null;
 }
 
+/** Merged Billie export column that stores the 1-based row index in the **original** upload (not the merged sheet row). */
+function findSourceExcelRowColumn(headers: string[]): string | null {
+  const exact = pickColumn(headers, [
+    /^row_number$/,
+    /^row number$/,
+    /^source_row$/,
+    /^source row$/,
+    /^original_row$/,
+    /^original row$/,
+    /^excel_row$/,
+    /^excel row$/,
+    /^sheet_row$/,
+    /^sheet row$/,
+  ]);
+  if (exact) return exact;
+  return pickColumn(headers, [
+    /^row[_\s]*number$/,
+    /original\s*[_\s]*(?:excel\s*)?row/,
+    /source\s*[_\s]*row/,
+  ]);
+}
+
+/** Merged export column used as Billie `itemId` for database updates. */
+function findItemIdColumn(headers: string[]): string | null {
+  const exact = pickColumn(headers, [
+    /^item[_\s-]*id$/,
+    /^defect[_\s-]*item[_\s-]*id$/,
+    /^reference[_\s-]*id$/,
+  ]);
+  if (exact) return exact;
+  return pickColumn(headers, [/item\s*id/i, /defect\s*ref/i]);
+}
+
+function parseSourceExcelRowCell(raw: unknown): number | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    const n = Math.floor(raw);
+    return n >= 1 ? n : null;
+  }
+  const s = String(raw).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d+)/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return n >= 1 ? n : null;
+}
+
 /** SheetJS merges duplicate header keys into one property — duplicate Billie columns were dropping data. */
 function sheetToMatrixDedupedHeaders(sheet: XLSX.WorkSheet): {
   matrix: Record<string, unknown>[];
@@ -336,6 +383,9 @@ export function parseBillieMergeXlsxBuffer(buf: ArrayBuffer, projectId: string):
     descCol = guessed ?? headers[1] ?? headers[0] ?? catCol;
   }
 
+  const sourceExcelRowCol = findSourceExcelRowColumn(headers);
+  const itemIdCol = findItemIdColumn(headers);
+
   const rows: HistoricalDefectTableRow[] = matrix.map((raw, i) => {
     const catCell = String(raw[catCol] ?? "").trim();
     const descCell = String(raw[descCol] ?? "").trim();
@@ -352,7 +402,12 @@ export function parseBillieMergeXlsxBuffer(buf: ArrayBuffer, projectId: string):
     const responseStrategyTaxonomy = parsed.length > 0 ? parsed : undefined;
 
     const id = `billie-${projectId}-${i + 1}`;
-    const excelSheetRow = excelSheetRows[i];
+    const fromRowNumberCol =
+      sourceExcelRowCol != null ? parseSourceExcelRowCell(raw[sourceExcelRowCol]) : null;
+    const excelSheetRow = fromRowNumberCol ?? excelSheetRows[i];
+
+    const itemIdCell = itemIdCol != null ? String(raw[itemIdCol] ?? "").trim() : "";
+    const itemId = itemIdCell.length > 0 ? itemIdCell : undefined;
 
     return {
       id,
@@ -364,6 +419,7 @@ export function parseBillieMergeXlsxBuffer(buf: ArrayBuffer, projectId: string):
       extractedDocCitations: "",
       responseStrategyTaxonomy,
       ...(excelSheetRow != null ? { excelSheetRow } : {}),
+      ...(itemId != null ? { itemId } : {}),
     };
   });
 

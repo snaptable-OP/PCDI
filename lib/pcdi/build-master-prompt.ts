@@ -128,7 +128,7 @@ export function buildMasterPrompt({ metadata, enrichedRows }: BuildMasterPromptI
   }
 
   const lines: string[] = [
-    "MASTER AGENT — PCDI CURRENT DEFECT BRIEF",
+    "MASTER AGENT — RESOLV MACHINE CURRENT DEFECT BRIEF",
     "========================================",
     "",
     "Routing instruction",

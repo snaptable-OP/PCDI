@@ -3,8 +3,10 @@
 import { Bot, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useKnowledgeFoldersStore } from "@/lib/pcdi/knowledge-folders-store";
+import { getDefaultPromptForResponseStrategy } from "@/lib/pcdi/response-strategy-default-prompts";
 import { useResponseAgentsStore, type ResponseStrategyAgent } from "@/lib/pcdi/response-agents-store";
 import { VISUALISATION_STRATEGY_OPTIONS } from "@/lib/pcdi/live-visualisation-strategies";
+import { useLiveSelectedProjectStore } from "@/lib/pcdi/live-selected-project-store";
 
 const STRATEGY_OPTIONS = VISUALISATION_STRATEGY_OPTIONS as readonly string[];
 
@@ -85,8 +87,17 @@ function StrategyDropdownEdit({
 }
 
 export function ResponseAgentsView() {
-  const folders = useKnowledgeFoldersStore((s) => s.folders);
-  const agents = useResponseAgentsStore((s) => s.agents);
+  const projectId = useLiveSelectedProjectStore((s) => s.selectedProjectId);
+  const foldersAll = useKnowledgeFoldersStore((s) => s.folders);
+  const folders = useMemo(
+    () => foldersAll.filter((f) => projectId && f.projectId === projectId),
+    [foldersAll, projectId],
+  );
+  const agentsAll = useResponseAgentsStore((s) => s.agents);
+  const agents = useMemo(
+    () => agentsAll.filter((a) => projectId && a.projectId === projectId),
+    [agentsAll, projectId],
+  );
   const addAgent = useResponseAgentsStore((s) => s.addAgent);
   const updateAgent = useResponseAgentsStore((s) => s.updateAgent);
   const removeAgent = useResponseAgentsStore((s) => s.removeAgent);
@@ -105,8 +116,8 @@ export function ResponseAgentsView() {
     const s = strategy.trim();
     const p = prompt.trim();
     const fid = folderId.trim();
-    if (!s || !p || !fid) return;
-    addAgent({ name: s, prompt: p, knowledgeFolderId: fid });
+    if (!projectId || !s || !p || !fid) return;
+    addAgent({ projectId, name: s, prompt: p, knowledgeFolderId: fid });
     setStrategy("");
     setPrompt("");
     setFolderId("");
@@ -124,10 +135,18 @@ export function ResponseAgentsView() {
         </p>
       </header>
 
-      <form
-        onSubmit={onSubmit}
-        className="mb-10 space-y-4 rounded-xl border border-border bg-surface p-5 shadow-sm"
-      >
+      {!projectId ? (
+        <p className="mb-8 rounded-lg border border-dashed border-border bg-surface-muted/40 px-4 py-8 text-center text-sm text-foreground-muted">
+          Choose a project from the sidebar selector. Agents and folders are stored per project in this browser.
+        </p>
+      ) : null}
+
+      {projectId ? (
+        <>
+          <form
+            onSubmit={onSubmit}
+            className="mb-10 space-y-4 rounded-xl border border-border bg-surface p-5 shadow-sm"
+          >
         <div>
           <label
             htmlFor="agent-strategy"
@@ -138,7 +157,10 @@ export function ResponseAgentsView() {
           <StrategyDropdown
             id="agent-strategy"
             value={strategy}
-            onChange={setStrategy}
+            onChange={(v) => {
+              setStrategy(v);
+              setPrompt(getDefaultPromptForResponseStrategy(v));
+            }}
             emptyLabel="Choose response strategy…"
           />
         </div>
@@ -190,9 +212,9 @@ export function ResponseAgentsView() {
           <Bot className="h-4 w-4" aria-hidden />
           Save agent
         </button>
-      </form>
+          </form>
 
-      <section aria-labelledby="agents-list-title">
+          <section aria-labelledby="agents-list-title">
         <h2 id="agents-list-title" className="mb-3 text-sm font-semibold uppercase tracking-wide text-foreground-muted">
           Your agents
         </h2>
@@ -217,7 +239,9 @@ export function ResponseAgentsView() {
               ))}
           </ul>
         )}
-      </section>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -295,7 +319,14 @@ function AgentCard({
             <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-foreground-muted">
               Choose response strategy
             </label>
-            <StrategyDropdownEdit id={`edit-strategy-${agent.id}`} value={localStrategy} onChange={setLocalStrategy} />
+            <StrategyDropdownEdit
+              id={`edit-strategy-${agent.id}`}
+              value={localStrategy}
+              onChange={(v) => {
+                setLocalStrategy(v);
+                setLocalPrompt(getDefaultPromptForResponseStrategy(v));
+              }}
+            />
           </div>
           <textarea
             value={localPrompt}

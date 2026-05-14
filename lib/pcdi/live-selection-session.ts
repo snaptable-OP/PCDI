@@ -9,8 +9,14 @@ export type LiveSelectionState = {
   fingerprint: string;
 };
 
-function storageKey(projectId: string) {
+function legacyKey(projectId: string) {
   return `pcdi-live-analysis-${projectId}`;
+}
+
+function compositeKey(projectId: string, defectFileId: string) {
+  const fid = defectFileId.trim();
+  if (!fid || fid.startsWith("project:")) return legacyKey(projectId);
+  return `pcdi-live-analysis-${projectId}__${fid}`;
 }
 
 export function liveUploadFingerprint(upload: {
@@ -24,9 +30,34 @@ export function liveUploadFingerprint(upload: {
   );
 }
 
-export function readLiveSelectionState(projectId: string): LiveSelectionState | null {
+export function readLiveSelectionState(
+  projectId: string,
+  defectFileId?: string | null,
+): LiveSelectionState | null {
   if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem(storageKey(projectId));
+
+  const fid = defectFileId?.trim();
+  if (fid && !fid.startsWith("project:")) {
+    const rawC = sessionStorage.getItem(compositeKey(projectId, fid));
+    if (!rawC) return null;
+    try {
+      const data = JSON.parse(rawC) as LiveSelectionState;
+      if (!data || typeof data !== "object") return null;
+      const selections =
+        data.selections && typeof data.selections === "object" && !Array.isArray(data.selections)
+          ? data.selections
+          : {};
+      return {
+        selections,
+        confirmed: Boolean(data.confirmed),
+        fingerprint: typeof data.fingerprint === "string" ? data.fingerprint : "",
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  const raw = sessionStorage.getItem(legacyKey(projectId));
   if (!raw) return null;
   try {
     const data = JSON.parse(raw) as LiveSelectionState;
@@ -45,10 +76,24 @@ export function readLiveSelectionState(projectId: string): LiveSelectionState | 
   }
 }
 
-export function writeLiveSelectionState(projectId: string, state: LiveSelectionState): void {
-  sessionStorage.setItem(storageKey(projectId), JSON.stringify(state));
+export function writeLiveSelectionState(
+  projectId: string,
+  state: LiveSelectionState,
+  defectFileId?: string | null,
+): void {
+  const json = JSON.stringify(state);
+  const fid = defectFileId?.trim();
+  if (fid && !fid.startsWith("project:")) {
+    sessionStorage.setItem(compositeKey(projectId, fid), json);
+    return;
+  }
+  sessionStorage.setItem(legacyKey(projectId), json);
 }
 
-export function clearLiveSelectionState(projectId: string): void {
-  sessionStorage.removeItem(storageKey(projectId));
+export function clearLiveSelectionState(projectId: string, defectFileId?: string | null): void {
+  sessionStorage.removeItem(legacyKey(projectId));
+  const fid = defectFileId?.trim();
+  if (fid && !fid.startsWith("project:")) {
+    sessionStorage.removeItem(compositeKey(projectId, fid));
+  }
 }

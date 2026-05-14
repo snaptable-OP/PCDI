@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, ChevronDown, FileSpreadsheet, X } from "lucide-react";
+import { Check, ChevronDown, FileSpreadsheet, Save, X } from "lucide-react";
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LiveExcelRowModal } from "@/components/pcdi/live-excel-row-modal";
 import {
@@ -14,14 +15,19 @@ import {
   getRowStrategySuggestionSplit,
 } from "@/lib/pcdi/live-strategy-suggestions";
 import { readLiveSelectionState } from "@/lib/pcdi/live-selection-session";
+import {
+  effectiveStrategyByRow,
+  persistDrawerStrategyDrafts,
+  saveDefectDrawerToBackend,
+} from "@/lib/pcdi/save-defect-drawer-state";
 import { VISUALISATION_STRATEGY_OPTIONS } from "@/lib/pcdi/live-visualisation-strategies";
 import { dataSuggestedStrategyHighlightStyles } from "@/lib/pcdi/mind-map-palette";
 import type { CategoryAggregate } from "@/lib/pcdi/defect-category-aggregation";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
 
-function readSelectionsMap(projectId: string): Record<string, string> {
-  const fp = getLiveSelectionFingerprint(projectId);
-  const s = readLiveSelectionState(projectId);
+function readSelectionsMap(projectId: string, defectFileId?: string | null): Record<string, string> {
+  const fp = getLiveSelectionFingerprint(projectId, defectFileId);
+  const s = readLiveSelectionState(projectId, defectFileId);
   return s?.fingerprint === fp ? { ...(s.selections ?? {}) } : {};
 }
 
@@ -212,17 +218,49 @@ function buildMockDefectResponse(
   const trimmed = defectDescription.trim();
   const short =
     trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
+
+  const h = (s: string) => {
+    let n = 0;
+    for (let i = 0; i < s.length; i++) n = (n * 131 + s.charCodeAt(i)) | 0;
+    return n;
+  };
+  const seed = (h(trimmed) ^ h(strategyLabel)) + variant * 911;
+
+  const asnz = [
+    "AS/NZS 2904",
+    "AS 1530.4",
+    "AS 3600",
+    "AS 4100",
+    "AS 1720.1",
+    "AS/NZS 3000",
+    "AS 4654.2",
+    "NZS 3604",
+    "AS/NZS 1170.2",
+    "AS 1668.1",
+  ];
+  const pick = (i: number) => asnz[Math.abs(seed + i) % asnz.length];
+  const stdA = pick(0);
+  const stdB = pick(1);
+
+  const evidenceLine =
+    "Evidence to cite in the response pack should include: applicable NCC (Volumes One/Two/Three as relevant) and " +
+    stdA +
+    " / " +
+    stdB +
+    ", the Fire Engineering Report (FER) and any Deemed-to-Satisfy or performance pathway clarifications, manufacturer specifications and installation manuals, relevant test reports (e.g. system / penetration / reaction-to-fire evidence), and product statements (e.g. CodeMark / technical datasheets) so claims are traceable to named documents.";
+
   const blocks = [
     `Recommended approach: ${strategyLabel}. ` +
-      "Raise a targeted corrective action with clear acceptance criteria and a verification hold point before closing the item in the register.",
+      "Frame the reply around demonstrable compliance: map the defect to the NCC Performance Requirements (or acceptable construction / verification methods), then tie each statement to a named standard, FER clause, or manufacturer-issued evidence.",
     short
-      ? `Defect context: “${short}” — confirm root cause on site before works start; capture photographs at before / during / after.`
-      : "No description text on this row — agree an inspection brief and document the site condition before closing.",
-    "Coordinate with the responsible subcontractor, record agreed dates, and obtain sign‑off that satisfies programme and quality gates.",
+      ? `Defect context: “${short}” — confirm as-built against the contract documents, the FER, and ${stdA} before works start; retain dated photographs and mark-ups for the register.`
+      : "No description text on this row — agree an inspection brief, pull the relevant NCC clauses and AS/NZS limits, and capture site observations before closing.",
+    evidenceLine,
+    "Coordinate with the responsible subcontractor: request manufacturer shop drawings / specs, any third-party test reports relied on in submittals, and updated product statements where substitutions are proposed; record agreed dates and obtain sign-off that satisfies programme and quality gates.",
   ];
   if (variant > 0) {
     blocks.push(
-      "Regenerated note: double‑check adjacent zones for copy‑through defects and update the BIM/metadata trail if scope changes.",
+      "Regenerated note: re-scan adjacent services / penetrations for copy-through risk, cross-check the FER table of systems against test report references, and update the BIM / metadata trail if scope or fire-compartment boundaries change.",
     );
   }
   return blocks.join("\n\n");
@@ -233,19 +271,30 @@ type Props = {
   onClose: () => void;
   aggregate: CategoryAggregate | null;
   projectId: string;
+  defectFileId?: string | null;
+  /** Lifted from mind map: generated response text per register row id (all categories). */
+  generatedResponsesByRowId: Record<string, string>;
+  setGeneratedResponsesByRowId: Dispatch<SetStateAction<Record<string, string>>>;
 };
 
-export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: Props) {
+export function DefectCategorySidebar({
+  open,
+  onClose,
+  aggregate,
+  projectId,
+  defectFileId,
+  generatedResponsesByRowId,
+  setGeneratedResponsesByRowId,
+}: Props) {
   const [bulkStrategy, setBulkStrategy] = useState<string>("");
   const [draftByRow, setDraftByRow] = useState<Record<string, string>>({});
   const [selectionsMap, setSelectionsMap] = useState<Record<string, string>>({});
   const [appliedHint, setAppliedHint] = useState<string | null>(null);
   const [excelRowId, setExcelRowId] = useState<string | null>(null);
-  /** Mock generated copy per row (session only — resets when the drawer category changes). */
-  const [responseByRow, setResponseByRow] = useState<Record<string, string>>({});
   const [regenerateCountByRow, setRegenerateCountByRow] = useState<Record<string, number>>({});
   const [generatingRowId, setGeneratingRowId] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
 
   const bulkSuggestions = useMemo(
     () =>
@@ -258,16 +307,15 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
     setAppliedHint(null);
     setExcelRowId(null);
     setBulkStrategy("");
-    setResponseByRow({});
     setRegenerateCountByRow({});
     setGeneratingRowId(null);
     setBulkGenerating(false);
-    const map = readSelectionsMap(projectId);
+    const map = readSelectionsMap(projectId, defectFileId);
     setSelectionsMap(map);
     const drafts: Record<string, string> = {};
     for (const r of aggregate.rows) drafts[r.id] = map[r.id] ?? "";
     setDraftByRow(drafts);
-  }, [open, aggregate, projectId]);
+  }, [open, aggregate, projectId, defectFileId]);
 
   const rowsWithStrategy = useMemo(() => {
     if (!aggregate) return 0;
@@ -280,23 +328,23 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
 
   const onApplyAll = () => {
     const ids = aggregate.rows.map((r) => r.id);
-    bulkApplyLiveStrategyForRows(projectId, ids, bulkStrategy);
-    const map = readSelectionsMap(projectId);
+    bulkApplyLiveStrategyForRows(projectId, ids, bulkStrategy, defectFileId);
+    const map = readSelectionsMap(projectId, defectFileId);
     setSelectionsMap(map);
     const drafts: Record<string, string> = {};
     for (const r of aggregate.rows) drafts[r.id] = map[r.id] ?? "";
     setDraftByRow(drafts);
-    notifyLiveSelectionsUpdated(projectId);
+    notifyLiveSelectionsUpdated(projectId, defectFileId);
     const label = bulkStrategy.trim().length > 0 ? bulkStrategy : "None Selected";
     setAppliedHint(`Applied “${label}” to ${ids.length} defect${ids.length === 1 ? "" : "s"}.`);
   };
 
   const applyRowStrategy = (rowId: string) => {
     const v = draftByRow[rowId] ?? "";
-    bulkApplyLiveStrategyForRows(projectId, [rowId], v);
-    const map = readSelectionsMap(projectId);
+    bulkApplyLiveStrategyForRows(projectId, [rowId], v, defectFileId);
+    const map = readSelectionsMap(projectId, defectFileId);
     setSelectionsMap(map);
-    notifyLiveSelectionsUpdated(projectId);
+    notifyLiveSelectionsUpdated(projectId, defectFileId);
     const label = v.trim().length > 0 ? v : "None Selected";
     setAppliedHint(`Saved “${label}” for ${rowId}.`);
   };
@@ -311,7 +359,7 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
     if (asRegenerate) setRegenerateCountByRow((p) => ({ ...p, [rowId]: variant }));
     window.setTimeout(() => {
       const text = buildMockDefectResponse(row.defectDescription, strat, asRegenerate ? variant : 0);
-      setResponseByRow((prev) => ({ ...prev, [rowId]: text }));
+      setGeneratedResponsesByRowId((prev) => ({ ...prev, [rowId]: text }));
       setGeneratingRowId(null);
     }, 450);
   };
@@ -328,10 +376,60 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
         next[row.id] = buildMockDefectResponse(row.defectDescription, strat, 0);
         count += 1;
       }
-      setResponseByRow((prev) => ({ ...prev, ...next }));
+      setGeneratedResponsesByRowId((prev) => ({ ...prev, ...next }));
       setBulkGenerating(false);
       setAppliedHint(`Generated mock responses for ${count} defect${count === 1 ? "" : "s"} with a strategy selected.`);
     }, 500);
+  };
+
+  const onSaveAll = async () => {
+    const nextSelections = persistDrawerStrategyDrafts(
+      projectId,
+      defectFileId,
+      aggregate.rows.map((r) => r.id),
+      draftByRow,
+      selectionsMap,
+    );
+    setSelectionsMap(nextSelections);
+    notifyLiveSelectionsUpdated(projectId, defectFileId);
+
+    const strategyByRowId = effectiveStrategyByRow(aggregate.rows, draftByRow, nextSelections);
+    const fileId = typeof defectFileId === "string" ? defectFileId.trim() : "";
+
+    if (!fileId) {
+      onClose();
+      return;
+    }
+
+    setSaveBusy(true);
+    setAppliedHint(null);
+    try {
+      const result = await saveDefectDrawerToBackend({
+        defectFileId: fileId,
+        rows: aggregate.rows,
+        strategyByRowId,
+        responseByRow: generatedResponsesByRowId,
+      });
+      const parts: string[] = [];
+      if (result.strategiesPushed > 0) {
+        parts.push(`Updated strategies for ${result.strategiesPushed} item${result.strategiesPushed === 1 ? "" : "s"}`);
+      }
+      if (result.responsesPushed > 0) {
+        parts.push(`Saved ${result.responsesPushed} generated response${result.responsesPushed === 1 ? "" : "s"}`);
+      }
+      const warnPreview = result.warnings.slice(0, 3).join(" ");
+      const more =
+        result.warnings.length > 3 ? ` (+${result.warnings.length - 3} more)` : "";
+      setAppliedHint(
+        [parts.join(". "), warnPreview ? `${warnPreview}${more}` : ""].filter(Boolean).join(" — ") ||
+          "Saved.",
+      );
+      onClose();
+    } catch (e) {
+      setAppliedHint(e instanceof Error ? e.message : "Save failed.");
+    } finally {
+      setSaveBusy(false);
+    }
   };
 
   return (
@@ -401,13 +499,17 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
             >
               {bulkGenerating ? "Generating…" : "Generate all responses"}
             </button>
+            <button
+              type="button"
+              disabled={saveBusy}
+              onClick={() => void onSaveAll()}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-emerald-700/35 bg-emerald-700/12 px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:bg-emerald-700/18 disabled:cursor-not-allowed disabled:opacity-50 lg:mb-0.5"
+            >
+              <Save className="h-4 w-4 shrink-0" aria-hidden />
+              {saveBusy ? "Saving…" : "Save"}
+            </button>
           </div>
           {appliedHint ? <p className="text-xs text-accent">{appliedHint}</p> : null}
-          <p className="text-[11px] leading-snug text-foreground-muted">
-            “None Selected” clears overrides for that scope. Per-defect overrides update the category bubble mix. Select a
-            strategy (saved or in the row picker) to enable Generate. Click a row title area for spreadsheet preview when an
-            upload exists.
-          </p>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
@@ -420,7 +522,8 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
                 const hasStrategy = Boolean(
                   strategyForRowGenerate(row, draftByRow, selectionsMap),
                 );
-                const generated = responseByRow[row.id];
+                const responseDraft = generatedResponsesByRowId[row.id];
+                const hasResponseDraft = responseDraft !== undefined;
                 const busy = generatingRowId === row.id;
                 return (
                   <li
@@ -474,13 +577,21 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
                       <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-foreground-muted">
                         Proposed response
                       </p>
-                      {generated ? (
+                      {hasResponseDraft ? (
                         <>
-                          <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-border-subtle bg-surface-muted/50 p-2.5">
-                            <p className="whitespace-pre-line text-xs leading-relaxed text-foreground">
-                              {generated}
-                            </p>
-                          </div>
+                          <textarea
+                            value={responseDraft}
+                            onChange={(e) =>
+                              setGeneratedResponsesByRowId((prev) => ({
+                                ...prev,
+                                [row.id]: e.target.value,
+                              }))
+                            }
+                            rows={8}
+                            spellCheck
+                            className="min-h-[7.5rem] w-full resize-y rounded-md border border-border-subtle bg-surface-muted/50 px-2.5 py-2 text-xs leading-relaxed text-foreground outline-none ring-accent/20 placeholder:text-foreground-muted focus:ring-2"
+                            aria-label={`Edit proposed response for defect ${row.id}`}
+                          />
                           <button
                             type="button"
                             disabled={!hasStrategy || busy}
@@ -522,6 +633,7 @@ export function DefectCategorySidebar({ open, onClose, aggregate, projectId }: P
         registerRowId={excelRowId}
         open={excelRowId !== null}
         onClose={() => setExcelRowId(null)}
+        defectFileId={defectFileId}
       />
     </>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { ExcelSheetRowPreview } from "@/components/pcdi/excel-sheet-row-preview";
 import { getLiveSourceRowPreview } from "@/lib/pcdi/live-source-row";
@@ -10,9 +11,17 @@ type Props = {
   registerRowId: string | null;
   open: boolean;
   onClose: () => void;
+  /** Billie defect file scope — required for correct merged session row / URLs when multiple analyses exist. */
+  defectFileId?: string | null;
 };
 
-export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: Props) {
+export function LiveExcelRowModal({
+  projectId,
+  registerRowId,
+  open,
+  onClose,
+  defectFileId,
+}: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -31,15 +40,15 @@ export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: P
 
   if (!open || !registerRowId) return null;
 
-  const preview = getLiveSourceRowPreview(projectId, registerRowId);
+  const preview = getLiveSourceRowPreview(projectId, registerRowId, defectFileId);
   if (!preview) {
-    return (
-      <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]">
+    const shell = (
+      <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]">
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="excel-preview-title"
-          className="relative max-h-[90vh] w-full max-w-3xl overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl"
+          className="relative max-h-[92vh] w-full max-w-[min(1600px,96vw)] overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 shadow-xl"
         >
           <button
             ref={closeRef}
@@ -54,19 +63,22 @@ export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: P
             Source row
           </h2>
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-            No uploaded spreadsheet row is linked to this register entry (e.g. prototype seed data). Upload a file
-            to see the original Excel row.
+            No spreadsheet row is linked to this register entry, or session data expired. Re-open this analysis from the
+            list or run Analyse Defects again so row numbers and file URLs are available.
           </p>
         </div>
       </div>
     );
+    if (typeof document === "undefined") return null;
+    return createPortal(shell, document.body);
   }
 
   const { columns, cells, excelSheetRow, mergeFileUrl, isOriginalUpload } = preview;
 
-  return (
+  const shell = (
     <div
-      className="fixed inset-0 z-[230] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
+      className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/40 p-4 backdrop-blur-[1px]"
+      role="presentation"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -75,13 +87,21 @@ export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: P
         role="dialog"
         aria-modal="true"
         aria-labelledby="excel-preview-title"
-        className="relative max-h-[90vh] w-full max-w-4xl overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+        className="relative flex max-h-[92vh] w-full max-w-[min(1600px,96vw)] flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-xl"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-          <h2 id="excel-preview-title" className="text-sm font-semibold text-[var(--foreground)]">
-            Source spreadsheet · Excel row{" "}
-            <span className="font-mono text-[var(--muted-foreground)]">{excelSheetRow}</span>
-          </h2>
+          <div className="min-w-0">
+            <h2 id="excel-preview-title" className="text-sm font-semibold text-[var(--foreground)]">
+              Source spreadsheet · Row{" "}
+              <span className="font-mono text-[var(--muted-foreground)]">{excelSheetRow}</span>
+            </h2>
+            <p className="mt-1 text-[11px] leading-snug text-[var(--muted-foreground)]">
+              Row number comes from the analysed merged export. The preview loads your{" "}
+              <span className="font-medium text-[var(--foreground)]">original upload</span> when the link is still valid,
+              and highlights that sheet row so you can compare with Billie output.
+            </p>
+          </div>
           <button
             ref={closeRef}
             type="button"
@@ -93,29 +113,34 @@ export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: P
           </button>
         </div>
 
-        <div className="space-y-3 p-4">
+        <div className="flex min-h-0 flex-1 flex-col space-y-3 overflow-y-auto p-4">
           {mergeFileUrl ? (
             <>
               <p className="text-[11px] leading-snug text-[var(--muted-foreground)]">
                 {isOriginalUpload === true ? (
                   <>
-                    Loading your <span className="font-medium text-[var(--foreground)]">original upload</span> (full
-                    sheet, all columns).{" "}
+                    Showing your <span className="font-medium text-[var(--foreground)]">original .xlsx</span>. Row{" "}
+                    <span className="font-mono">{excelSheetRow}</span> is the line Billie recorded for this defect after
+                    merge (same index on your sheet when layout matches).{" "}
                   </>
                 ) : isOriginalUpload === false ? (
                   <>
-                    Using Billie&apos;s{" "}
-                    <span className="font-medium text-[var(--foreground)]">merged export</span> — original upload URL
-                    missing or expired; this file may omit columns from your raw spreadsheet.{" "}
+                    Original upload URL missing or expired — preview uses Billie&apos;s{" "}
+                    <span className="font-medium text-[var(--foreground)]">merged export</span>.{" "}
                   </>
                 ) : (
                   <>Spreadsheet preview. </>
                 )}
-                <span className="font-medium text-[var(--foreground)]">ExcelJS</span> renders values and basic styles.
-                Embedded photos remain inside the workbook package but are not drawn in this grid yet (JSZip + OOXML
-                overlay can render floating images on sheet 1).
+                The default <span className="font-medium text-[var(--foreground)]">Original workbook</span> tab uses
+                Excel for the web (full formatting and embedded pictures). Use{" "}
+                <span className="font-medium text-[var(--foreground)]">Row … (grid)</span> for a lightweight table that
+                scrolls to the analysed row.
               </p>
-              <ExcelSheetRowPreview mergeFileUrl={mergeFileUrl} excelSheetRow={excelSheetRow} />
+              <ExcelSheetRowPreview
+                mergeFileUrl={mergeFileUrl}
+                excelSheetRow={excelSheetRow}
+                fileName={preview.mergeFileName}
+              />
             </>
           ) : columns.length > 0 ? (
             <div className="overflow-x-auto">
@@ -151,13 +176,16 @@ export function LiveExcelRowModal({ projectId, registerRowId, open, onClose }: P
             </div>
           ) : (
             <p className="text-sm text-[var(--muted-foreground)]">
-              Excel row <span className="font-mono font-medium">{excelSheetRow}</span> is stored for this defect, but
-              no file URL is available to load a styled preview. Re-run analysis or open a project that still has the
-              merged file link.
+              Excel row <span className="font-mono font-medium">{excelSheetRow}</span> is stored for this defect, but no
+              file URL is available to load a styled preview. Re-run analysis or open a project that still has the merge
+              file link.
             </p>
           )}
         </div>
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(shell, document.body);
 }

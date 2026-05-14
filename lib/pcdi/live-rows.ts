@@ -16,9 +16,12 @@ import { readUploadPayload } from "@/lib/pcdi/upload-session";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
 
 /** Base rows: Billie merge output if present, else uploaded spreadsheet, else prototype seed (live). */
-export function getLiveRegisterBaseRows(projectId: string): HistoricalDefectTableRow[] {
+export function getLiveRegisterBaseRows(
+  projectId: string,
+  defectFileId?: string | null,
+): HistoricalDefectTableRow[] {
   if (typeof window !== "undefined") {
-    const billie = readBillieMergeSession(projectId);
+    const billie = readBillieMergeSession(projectId, defectFileId);
     if (billie?.rows?.length) return billie.rows;
   }
   return buildLiveRowsFromUploadSession(projectId) ?? getDefectTableRowsForModule(projectId, "live");
@@ -36,10 +39,10 @@ export function getLiveUploadFingerprint(projectId: string): string | null {
 }
 
 /** Stable key for selection session — upload blob, Billie merge rows, or prototype seed. */
-export function getLiveSelectionFingerprint(projectId: string): string {
+export function getLiveSelectionFingerprint(projectId: string, defectFileId?: string | null): string {
   const upload = getLiveUploadFingerprint(projectId) ?? "nofile";
   if (typeof window === "undefined") return `${upload}:nobillie`;
-  const b = readBillieMergeSession(projectId);
+  const b = readBillieMergeSession(projectId, defectFileId);
   const billie =
     b?.rowSignature && b.defectFileId ? `billie:${b.defectFileId}:${b.rowSignature}` : "nobillie";
   return `${upload}:${billie}`;
@@ -49,26 +52,39 @@ export function getLiveSelectionFingerprint(projectId: string): string {
  * Writes the same strategy for every listed row id (sessionStorage — matches live defect register).
  * Use an empty `strategy` to clear overrides (“None Selected”) so the row falls back to AI suggestions.
  */
-export function bulkApplyLiveStrategyForRows(projectId: string, rowIds: string[], strategy: string): void {
-  const fp = getLiveSelectionFingerprint(projectId);
-  const prev = readLiveSelectionState(projectId);
+export function bulkApplyLiveStrategyForRows(
+  projectId: string,
+  rowIds: string[],
+  strategy: string,
+  defectFileId?: string | null,
+): void {
+  const fp = getLiveSelectionFingerprint(projectId, defectFileId);
+  const prev = readLiveSelectionState(projectId, defectFileId);
   const selections =
     prev && prev.fingerprint === fp ? { ...prev.selections } : ({} as Record<string, string>);
   for (const id of rowIds) {
     if (!strategy.trim()) delete selections[id];
     else selections[id] = strategy;
   }
-  writeLiveSelectionState(projectId, {
-    selections,
-    confirmed: false,
-    fingerprint: fp,
-  });
+  writeLiveSelectionState(
+    projectId,
+    {
+      selections,
+      confirmed: false,
+      fingerprint: fp,
+    },
+    defectFileId,
+  );
 }
 
 /** Fire after mutating selections so the mind graph can refresh breakdown labels. */
-export function notifyLiveSelectionsUpdated(projectId: string): void {
+export function notifyLiveSelectionsUpdated(projectId: string, defectFileId?: string | null): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("pcdi-live-selections-updated", { detail: { projectId } }));
+  window.dispatchEvent(
+    new CustomEvent("pcdi-live-selections-updated", {
+      detail: { projectId, defectFileId: defectFileId ?? null },
+    }),
+  );
 }
 
 /** Effective response strategy: explicit user choice, otherwise top suggested tag for the row. */
@@ -149,9 +165,12 @@ export function formatExplicitStrategyBreakdownSummary(
 }
 
 /** Applies user-selected response strategies and regenerates reference text from category + strategy (matrix). */
-export function getLiveRegisterMergedRows(projectId: string): HistoricalDefectTableRow[] {
-  const base = getLiveRegisterBaseRows(projectId);
-  const sel = readLiveSelectionState(projectId);
+export function getLiveRegisterMergedRows(
+  projectId: string,
+  defectFileId?: string | null,
+): HistoricalDefectTableRow[] {
+  const base = getLiveRegisterBaseRows(projectId, defectFileId);
+  const sel = readLiveSelectionState(projectId, defectFileId);
   const map = sel?.selections ?? {};
   return base.map((r, i) => {
     const responseCategory = resolveLiveResponseStrategy(r, map);
@@ -175,15 +194,15 @@ export function getLiveRegisterMergedRows(projectId: string): HistoricalDefectTa
   });
 }
 
-export function liveSelectionsComplete(projectId: string): boolean {
-  const base = getLiveRegisterBaseRows(projectId);
+export function liveSelectionsComplete(projectId: string, defectFileId?: string | null): boolean {
+  const base = getLiveRegisterBaseRows(projectId, defectFileId);
   if (base.length === 0) return false;
-  const sel = readLiveSelectionState(projectId)?.selections ?? {};
+  const sel = readLiveSelectionState(projectId, defectFileId)?.selections ?? {};
   return base.every((r) => resolveLiveResponseStrategy(r, sel).trim().length > 0);
 }
 
-export function liveExportAndPromptAllowed(projectId: string): boolean {
-  const sel = readLiveSelectionState(projectId);
+export function liveExportAndPromptAllowed(projectId: string, defectFileId?: string | null): boolean {
+  const sel = readLiveSelectionState(projectId, defectFileId);
   if (!sel?.confirmed) return false;
-  return liveSelectionsComplete(projectId);
+  return liveSelectionsComplete(projectId, defectFileId);
 }

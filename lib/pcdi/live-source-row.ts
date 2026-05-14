@@ -39,6 +39,35 @@ function resolveUploadDataRowIndex(
   return null;
 }
 
+/**
+ * 1-based worksheet row on the **original uploaded** Excel for a register row.
+ * Prefers Billie `row_number` / `excelSheetRow`; otherwise derives from upload `dataRows` order + header row.
+ */
+export function resolveOriginalUploadSheetRow(
+  projectId: string,
+  registerRowId: string,
+  defectFileId?: string | null,
+): number | null {
+  const upload = readUploadPayload(projectId);
+  const billie = readBillieMergeSession(projectId, defectFileId);
+  const fromBillie = billie?.rows?.find((r) => r.id === registerRowId);
+
+  const mergedAnalysisRow =
+    fromBillie?.excelSheetRow != null &&
+    Number.isFinite(fromBillie.excelSheetRow) &&
+    fromBillie.excelSheetRow >= 1
+      ? Math.floor(Number(fromBillie.excelSheetRow))
+      : null;
+
+  let uploadDerivedRow: number | null = null;
+  if (upload?.dataRows?.length) {
+    const idx = resolveUploadDataRowIndex(registerRowId, upload);
+    if (idx != null) uploadDerivedRow = upload.headerRow + 1 + idx;
+  }
+
+  return mergedAnalysisRow ?? uploadDerivedRow;
+}
+
 export type LiveSourceRowPreview = {
   /** Column headers in file order (empty when only workbook URL preview is used). */
   columns: string[];
@@ -46,13 +75,12 @@ export type LiveSourceRowPreview = {
   cells: Record<string, string>;
   /** 0-based index in uploaded `dataRows` when upload session matches. */
   rowIndex: number;
-  /** 1-based Excel worksheet row to scroll to in the preview workbook. */
+  /** 1-based Excel worksheet row to scroll to / highlight in the preview workbook. */
   excelSheetRow: number;
   /**
    * URL of the `.xlsx` loaded by ExcelJS in the modal.
-   * **Prefer** the original upload (`upload.fileUrl`) so the preview shows all columns and any
-   * embedded images the file contains (images still need OOXML overlay to render on canvas).
-   * If the upload is gone or expired, falls back to Billie’s merged export URL.
+   * Prefers the **original upload** when the presigned URL is still valid so the user sees the raw file;
+   * row highlighting uses **`row_number` from the merged export** (or Billie `excelSheetRow`) so it matches the source sheet.
    */
   mergeFileUrl?: string;
   mergeFileName?: string;
@@ -62,74 +90,88 @@ export type LiveSourceRowPreview = {
 
 /**
  * Row preview for the Excel modal (client-only).
- * Prefers the **originally uploaded** workbook (full columns / photos in file) when `fileUrl`
- * is still in session; otherwise uses the merged-file URL from Billie.
+ * Uses Billie `excelSheetRow` when present — from merged **`row_number`** / API fields (`row_number`, etc.), not the merged file’s physical row.
+ * Loads the **original** workbook URL when still in session when possible.
  */
 export function getLiveSourceRowPreview(
   projectId: string,
   registerRowId: string,
+  defectFileId?: string | null,
 ): LiveSourceRowPreview | null {
   const upload = readUploadPayload(projectId);
-  const billie = readBillieMergeSession(projectId);
+  const billie = readBillieMergeSession(projectId, defectFileId);
   const fromBillie = billie?.rows?.find((r) => r.id === registerRowId);
 
-  const originalUrl = upload?.fileUrl?.trim();
-  if (originalUrl && upload && upload.dataRows?.length) {
+  const originalUrlFromUpload = upload?.fileUrl?.trim();
+  const originalUrlFromBillie = billie?.originalUploadFileUrl?.trim();
+  /** Prefer live upload session (often fresher presign), then snapshot stored with merge session. */
+  const originalUrl = originalUrlFromUpload || originalUrlFromBillie || "";
+  const mergeUrl = billie?.mergeFileUrl?.trim();
+
+  /** From merged Billie export / parse — same value used when highlighting in the merged file. */
+  const mergedAnalysisRow =
+    fromBillie?.excelSheetRow != null && Number.isFinite(fromBillie.excelSheetRow) && fromBillie.excelSheetRow >= 1
+      ? Math.floor(Number(fromBillie.excelSheetRow))
+      : null;
+
+  let uploadDerivedRow: number | null = null;
+  if (upload?.dataRows?.length) {
     const idx = resolveUploadDataRowIndex(registerRowId, upload);
-    if (idx != null) {
-      const excelSheetRow = upload.headerRow + 1 + idx;
-      return {
-        columns: upload.columns,
-        cells: upload.dataRows[idx] as Record<string, string>,
-        rowIndex: idx,
-        excelSheetRow,
-        mergeFileUrl: originalUrl,
-        mergeFileName: upload.fileName,
-        isOriginalUpload: true,
-      };
-    }
+    if (idx != null) uploadDerivedRow = upload.headerRow + 1 + idx;
   }
 
-  if (billie && fromBillie && fromBillie.excelSheetRow != null) {
-    const url = billie.mergeFileUrl?.trim();
-    if (url) {
-      return {
-        columns: [],
-        cells: {},
-        rowIndex: 0,
-        excelSheetRow: fromBillie.excelSheetRow,
-        mergeFileUrl: url,
-        mergeFileName: billie.mergeFileName,
-        isOriginalUpload: false,
-      };
-    }
+  const excelSheetRow = mergedAnalysisRow ?? uploadDerivedRow;
+
+  const previewFileUrl = originalUrl || mergeUrl;
+  const isOriginalUpload = Boolean(originalUrl && previewFileUrl === originalUrl);
+
+  if (excelSheetRow != null && previewFileUrl) {
     return {
       columns: [],
       cells: {},
       rowIndex: 0,
-      excelSheetRow: fromBillie.excelSheetRow,
-      isOriginalUpload: false,
+      excelSheetRow,
+      mergeFileUrl: previewFileUrl,
+      mergeFileName: isOriginalUpload
+        ? upload?.fileName?.trim() || billie?.originalUploadFileName || billie?.mergeFileName
+        : billie?.mergeFileName,
+      isOriginalUpload,
     };
   }
 
-  if (upload?.dataRows?.length) {
+  if (upload?.dataRows?.length && uploadDerivedRow != null) {
     const idx = resolveUploadDataRowIndex(registerRowId, upload);
-    if (idx !== null) {
-      const excelSheetRow = upload.headerRow + 1 + idx;
+    if (idx != null) {
       return {
         columns: upload.columns,
         cells: upload.dataRows[idx] as Record<string, string>,
         rowIndex: idx,
-        excelSheetRow,
-        ...(upload.fileUrl?.trim()
+        excelSheetRow: uploadDerivedRow,
+        ...(originalUrl
           ? {
-              mergeFileUrl: upload.fileUrl.trim(),
-              mergeFileName: upload.fileName,
+              mergeFileUrl: originalUrl,
+              mergeFileName: upload?.fileName?.trim() || billie?.originalUploadFileName,
               isOriginalUpload: true as const,
             }
-          : {}),
+          : mergeUrl
+            ? {
+                mergeFileUrl: mergeUrl,
+                mergeFileName: billie?.mergeFileName,
+                isOriginalUpload: false as const,
+              }
+            : {}),
       };
     }
+  }
+
+  if (excelSheetRow != null) {
+    return {
+      columns: [],
+      cells: {},
+      rowIndex: 0,
+      excelSheetRow,
+      isOriginalUpload: false,
+    };
   }
 
   return null;

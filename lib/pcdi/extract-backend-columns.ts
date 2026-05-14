@@ -139,10 +139,87 @@ export function extractDefectFileIdFromBackendPayload(data: unknown): string | n
   return null;
 }
 
+/** List rows sometimes arrive wrapped as `{ code: 200, data: DefectFileResponse }`. */
+function unwrapBillieDefectFileEnvelope(item: unknown): unknown {
+  if (item == null || typeof item !== "object" || Array.isArray(item)) return item;
+  const o = item as Record<string, unknown>;
+  const inner = o.data;
+  if (inner != null && typeof inner === "object" && !Array.isArray(inner)) {
+    if (typeof o.code === "number" && o.code === 200) return inner;
+    if (o.success === true) return inner;
+  }
+  return item;
+}
+
+function parseBillieFileCreatedAtUnix(item: unknown): number {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return 0;
+  const o = item as Record<string, unknown>;
+  const c = o.createdAt;
+  if (typeof c === "number" && Number.isFinite(c)) return c;
+  if (typeof c === "string") {
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  const hk = o.createdAtHk;
+  if (typeof hk === "string") {
+    const ms = Date.parse(hk);
+    if (Number.isFinite(ms)) return ms / 1000;
+  }
+  return 0;
+}
+
+/** Billie-shaped file rows from GET /api/defect-files?projectId=…, in API encounter order. */
+function collectBillieDefectFileItemsFromQueryBody(body: unknown): unknown[] {
+  const out: unknown[] = [];
+  const push = (item: unknown) => {
+    const raw = unwrapBillieDefectFileEnvelope(item);
+    if (extractDefectFileIdFromBillieFileRecord(raw)) out.push(raw);
+  };
+  push(body);
+  if (Array.isArray(body)) {
+    for (const item of body) push(item);
+    return out;
+  }
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const o = body as Record<string, unknown>;
+    for (const key of ["result", "data", "payload", "content"] as const) {
+      const v = o[key];
+      if (Array.isArray(v)) for (const item of v) push(item);
+    }
+  }
+  return out;
+}
+
 /**
  * Defect file id from GET /api/defect-files?projectId=… (Billie may return an object, array of files, or envelope).
+ * When several files exist, prefers the newest by `createdAt` / `createdAtHk`, then last in API order if ties.
  */
 export function extractDefectFileIdFromProjectDefectFilesQueryBody(body: unknown): string | null {
+  const items = collectBillieDefectFileItemsFromQueryBody(body);
+  if (items.length > 0) {
+    const byId = new Map<string, { t: number; idx: number }>();
+    for (let i = 0; i < items.length; i++) {
+      const id = extractDefectFileIdFromBillieFileRecord(items[i]);
+      if (!id) continue;
+      const t = parseBillieFileCreatedAtUnix(items[i]);
+      const prev = byId.get(id);
+      if (!prev || t > prev.t || (t === prev.t && i > prev.idx)) {
+        byId.set(id, { t, idx: i });
+      }
+    }
+    let bestId: string | null = null;
+    let bestT = -Infinity;
+    let bestIdx = -1;
+    for (const [id, v] of byId) {
+      if (v.t > bestT || (v.t === bestT && v.idx > bestIdx)) {
+        bestT = v.t;
+        bestIdx = v.idx;
+        bestId = id;
+      }
+    }
+    if (bestId) return bestId;
+  }
+
   if (Array.isArray(body) && body.length > 0) {
     const last = body[body.length - 1];
     const first = body[0];
@@ -167,6 +244,70 @@ export function extractDefectFileIdFromProjectDefectFilesQueryBody(body: unknown
     }
   }
   return extractDefectFileIdFromBackendPayload(body) ?? extractDefectFileIdFromProjectListRow(body);
+}
+
+export type DefectFileListItem = {
+  id: string;
+  sourceFileName?: string;
+  mergeFileName?: string;
+  isProcessed?: string;
+  /** Unix seconds when Billie sends `createdAt` / `createdAtHk`; used for newest-first ordering. */
+  createdAtUnix?: number;
+};
+
+function summarizeDefectFileRecord(item: unknown): DefectFileListItem | null {
+  const raw = unwrapBillieDefectFileEnvelope(item);
+  const id = extractDefectFileIdFromBillieFileRecord(raw);
+  if (!id) return null;
+  const o = raw as Record<string, unknown>;
+  const ts = parseBillieFileCreatedAtUnix(raw);
+  return {
+    id,
+    sourceFileName: typeof o.sourceFileName === "string" ? o.sourceFileName : undefined,
+    mergeFileName: typeof o.mergeFileName === "string" ? o.mergeFileName : undefined,
+    isProcessed: typeof o.isProcessed === "string" ? o.isProcessed : undefined,
+    ...(ts > 0 ? { createdAtUnix: ts } : {}),
+  };
+}
+
+/**
+ * All defect file rows from GET /api/defect-files?projectId=… (multiple analyses per project).
+ */
+export function extractDefectFileListFromProjectQueryBody(body: unknown): DefectFileListItem[] {
+  const out: DefectFileListItem[] = [];
+  const seen = new Set<string>();
+
+  const push = (item: unknown) => {
+    const s = summarizeDefectFileRecord(item);
+    if (!s || seen.has(s.id)) return;
+    seen.add(s.id);
+    out.push(s);
+  };
+
+  push(body);
+
+  if (Array.isArray(body)) {
+    for (const item of body) push(item);
+    return out;
+  }
+  if (body && typeof body === "object" && !Array.isArray(body)) {
+    const o = body as Record<string, unknown>;
+    for (const key of ["result", "data", "payload", "content"] as const) {
+      const v = o[key];
+      if (Array.isArray(v)) for (const item of v) push(item);
+    }
+  }
+
+  out.sort((a, b) => {
+    const ta = a.createdAtUnix ?? 0;
+    const tb = b.createdAtUnix ?? 0;
+    if (tb !== ta) return tb - ta;
+    const an = (a.mergeFileName ?? a.sourceFileName ?? a.id).toLowerCase();
+    const bn = (b.mergeFileName ?? b.sourceFileName ?? b.id).toLowerCase();
+    return an.localeCompare(bn);
+  });
+
+  return out;
 }
 
 /**

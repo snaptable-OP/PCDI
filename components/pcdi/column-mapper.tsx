@@ -7,6 +7,7 @@ import {
   readHistoricalAiColumnMapping,
   writeHistoricalAiColumnMapping,
 } from "@/lib/pcdi/map-session";
+import { extractDefectFileStatusFromPollPayload } from "@/lib/pcdi/defect-file-merge-info";
 import {
   rowSignatureFromRows,
   writeBillieMergeSession,
@@ -62,6 +63,8 @@ export function ColumnMapper({
 
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  /** 0–100 from GET …/status while live analysis is polling; `null` before first poll or if API omits progress. */
+  const [analyzeProgress, setAnalyzeProgress] = useState<number | null>(null);
 
   const [selectedDefectColumns, setSelectedDefectColumns] = useState<Set<string>>(() => {
     const m = mergeHistoricalAiMappingWithColumns(columns, readHistoricalAiColumnMapping(projectId));
@@ -140,16 +143,49 @@ export function ColumnMapper({
         </ul>
       </div>
 
-      <div className="flex flex-col items-end gap-2 border-t border-[var(--border-subtle)] pt-6">
+      <div className="flex w-full flex-col items-stretch gap-3 border-t border-[var(--border-subtle)] pt-6">
+        {analyzeBusy && mode === "live" ? (
+          <div
+            className="w-full space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface-muted)]/50 px-3 py-3"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-[var(--foreground)]">Analysing defects</span>
+              <span className="tabular-nums text-[var(--muted-foreground)]">
+                {analyzeProgress != null ? `${analyzeProgress}%` : "Starting…"}
+              </span>
+            </div>
+            <div
+              className="h-2.5 w-full overflow-hidden rounded-full bg-[var(--border)]"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={analyzeProgress ?? undefined}
+              aria-label="Analysis progress"
+            >
+              {analyzeProgress != null ? (
+                <div
+                  className="h-full rounded-full bg-[color:var(--accent)] transition-[width] duration-500 ease-out"
+                  style={{ width: `${Math.min(100, Math.max(0, analyzeProgress))}%` }}
+                />
+              ) : (
+                <div className="h-full w-full animate-pulse rounded-full bg-[color:var(--accent)]/35" />
+              )}
+            </div>
+          </div>
+        ) : null}
         {analyzeError ? (
           <p className="max-w-full text-right text-sm text-red-600 dark:text-red-400" role="alert">
             {analyzeError}
           </p>
         ) : null}
-        <button
-          type="button"
-          disabled={!complete || analyzeBusy}
-          onClick={async () => {
+        <div className="flex justify-end">
+          <button
+            type="button"
+            disabled={!complete || analyzeBusy}
+            className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={async () => {
             setAnalyzeError(null);
             const headersToMerge = columns.filter((c) => selectedDefectColumns.has(c));
             const id = defectFileId?.trim();
@@ -160,6 +196,7 @@ export function ColumnMapper({
               return;
             }
             setAnalyzeBusy(true);
+            setAnalyzeProgress(null);
             try {
               const res = await fetch("/api/defect-files/analyze", {
                 method: "POST",
@@ -186,29 +223,34 @@ export function ColumnMapper({
               let mergeFileUrl: string | null = null;
               let mergeFileName: string | undefined;
 
+              setAnalyzeProgress(0);
+
               for (let attempt = 0; attempt < maxAttempts; attempt++) {
                 const st = await fetch(`/api/defect-files/${encodeURIComponent(id)}/status`, {
                   cache: "no-store",
                 });
-                const sj = (await st.json().catch(() => ({}))) as {
-                  error?: string;
-                  result?: {
-                    isProcessed?: string;
-                    mergeFileUrl?: string;
-                    mergeFileName?: string;
-                  };
-                };
+                const sj = (await st.json().catch(() => ({}))) as { error?: string };
                 if (!st.ok) {
                   setAnalyzeError(sj.error ?? `Status check failed (${st.status}).`);
                   return;
                 }
-                const proc = sj.result?.isProcessed?.toUpperCase() ?? "";
-                if (proc === "SUCCESS" && sj.result?.mergeFileUrl) {
-                  mergeFileUrl = sj.result.mergeFileUrl;
-                  mergeFileName = sj.result.mergeFileName;
+                const polled = extractDefectFileStatusFromPollPayload(sj);
+                if (polled.progressPercentage != null) {
+                  setAnalyzeProgress(polled.progressPercentage);
+                }
+                const proc = polled.isProcessed?.toUpperCase() ?? "";
+                if (proc === "SUCCESS" && polled.mergeFileUrl) {
+                  mergeFileUrl = polled.mergeFileUrl;
+                  mergeFileName = polled.mergeFileName;
+                  setAnalyzeProgress(100);
                   break;
                 }
-                if (proc === "FAILED" || proc === "ERROR" || proc === "FAILURE") {
+                if (
+                  proc === "FAILED" ||
+                  proc === "ERROR" ||
+                  proc === "FAILURE" ||
+                  proc === "FAIL"
+                ) {
                   setAnalyzeError("Defect analysis failed on the server.");
                   return;
                 }
@@ -243,7 +285,8 @@ export function ColumnMapper({
                 rowSignature: rowSignatureFromRows(pj.rows),
                 updatedAt: new Date().toISOString(),
               });
-              notifyLiveSelectionsUpdated(projectId);
+              if (mode === "live") notifyLiveSelectionsUpdated(projectId, id);
+              else notifyLiveSelectionsUpdated(projectId);
 
               if (onFinish) onFinish();
               else router.push(continueHref);
@@ -251,16 +294,17 @@ export function ColumnMapper({
               setAnalyzeError("Could not reach the server. Check your network and try again.");
             } finally {
               setAnalyzeBusy(false);
+              setAnalyzeProgress(null);
             }
           }}
-          className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-[var(--accent-foreground)] hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {analyzeBusy
-            ? mode === "live"
-              ? "Analysing defects…"
-              : "Starting analysis…"
-            : continueLabel}
-        </button>
+          >
+            {analyzeBusy
+              ? mode === "live"
+                ? "Analysing defects…"
+                : "Starting analysis…"
+              : continueLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

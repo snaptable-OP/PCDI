@@ -1,5 +1,6 @@
-import { ProjectSetupSinglePage } from "@/components/pcdi/project-setup-single-page";
+import { redirect } from "next/navigation";
 
-export default function LiveNewProjectPage() {
-  return <ProjectSetupSinglePage basePath="/live" module="live" />;
+/** Project creation moved to sidebar project selector (+ New project…). */
+export default function LegacyLiveNewProjectRedirect() {
+  redirect("/live");
 }

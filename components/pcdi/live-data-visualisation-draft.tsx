@@ -22,20 +22,24 @@ function formatAnalysisTimestamp(iso: string): string {
   }
 }
 
-function useBillieMergeSession(projectId: string): BillieMergeSessionPayload | null {
+function useBillieMergeSession(projectId: string, defectFileId: string | null): BillieMergeSessionPayload | null {
   const [session, setSession] = useState<BillieMergeSessionPayload | null>(null);
   useEffect(() => {
     function refresh() {
-      setSession(readBillieMergeSession(projectId));
+      setSession(readBillieMergeSession(projectId, defectFileId));
     }
     refresh();
     const onUpdate = (e: Event) => {
-      const d = (e as CustomEvent<{ projectId?: string }>).detail;
-      if (d?.projectId === projectId) refresh();
+      const d = (e as CustomEvent<{ projectId?: string; defectFileId?: string | null }>).detail;
+      if (d?.projectId !== projectId) return;
+      const scope = defectFileId?.trim() ?? null;
+      const incoming = d.defectFileId ?? null;
+      if (scope && incoming != null && incoming !== scope) return;
+      refresh();
     };
     window.addEventListener("pcdi-live-selections-updated", onUpdate);
     return () => window.removeEventListener("pcdi-live-selections-updated", onUpdate);
-  }, [projectId]);
+  }, [projectId, defectFileId]);
   return session;
 }
 
@@ -46,18 +50,28 @@ const CAPTION_MUTED = "#6B5E4E";
 function LiveVisualisationInner({
   projectId,
   basePath,
+  defectFileFromQuery = null,
 }: {
   projectId: string;
   basePath: string;
+  /** When set, load this Billie defect file (one analysis) instead of the project’s default resolution. */
+  defectFileFromQuery?: string | null;
 }) {
   const project = useHistoricalProjectsStore((s) => s.projects.find((p) => p.id === projectId));
   const upsertProject = useHistoricalProjectsStore((s) => s.upsertProject);
-  const billie = useBillieMergeSession(projectId);
+  const [scopeDefectFileId, setScopeDefectFileId] = useState<string | null>(() =>
+    defectFileFromQuery?.trim() ? defectFileFromQuery.trim() : null,
+  );
+  const billie = useBillieMergeSession(projectId, scopeDefectFileId);
   const [remoteSynced, setRemoteSynced] = useState(false);
   const [defectFileHydrate, setDefectFileHydrate] = useState<{
     loading: boolean;
     error: string | null;
   }>({ loading: false, error: null });
+
+  useEffect(() => {
+    setScopeDefectFileId(defectFileFromQuery?.trim() ? defectFileFromQuery.trim() : null);
+  }, [defectFileFromQuery, projectId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -106,9 +120,40 @@ function LiveVisualisationInner({
 
       if (!cancelled) setDefectFileHydrate({ loading: true, error: null });
 
+      const queryFid = defectFileFromQuery?.trim();
+      if (queryFid) {
+        const byId = await hydrateBillieSessionFromDefectFile(projectId, queryFid);
+        if (cancelled) return;
+        if (byId.ok) {
+          setScopeDefectFileId(queryFid);
+          if (!cancelled) setDefectFileHydrate({ loading: false, error: null });
+          return;
+        }
+        if (!cancelled) setDefectFileHydrate({ loading: false, error: byId.error });
+        return;
+      }
+
+      /** Same browser session: prefer the defect file we last loaded so home → Open does not replace it with another file on the project. */
+      const persisted = readBillieMergeSession(projectId);
+      const preferredFid = persisted?.defectFileId?.trim();
+      if (preferredFid && !preferredFid.startsWith("project:")) {
+        const reused = await hydrateBillieSessionFromDefectFile(projectId, preferredFid);
+        if (cancelled) return;
+        if (reused.ok) {
+          setScopeDefectFileId(preferredFid);
+          if (!cancelled) setDefectFileHydrate({ loading: false, error: null });
+          return;
+        }
+      }
+
       const byProject = await hydrateBillieSessionFromProjectDefectFilesQuery(projectId);
       if (cancelled) return;
       if (byProject.ok) {
+        const leg = readBillieMergeSession(projectId);
+        const resolved = leg?.defectFileId?.trim();
+        if (resolved && !resolved.startsWith("project:")) {
+          setScopeDefectFileId(resolved);
+        }
         if (!cancelled) setDefectFileHydrate({ loading: false, error: null });
         return;
       }
@@ -118,6 +163,7 @@ function LiveVisualisationInner({
         const byId = await hydrateBillieSessionFromDefectFile(projectId, defectFileId);
         if (cancelled) return;
         if (byId.ok) {
+          setScopeDefectFileId(defectFileId);
           if (!cancelled) setDefectFileHydrate({ loading: false, error: null });
           return;
         }
@@ -136,7 +182,7 @@ function LiveVisualisationInner({
     return () => {
       cancelled = true;
     };
-  }, [projectId, remoteSynced]);
+  }, [projectId, remoteSynced, defectFileFromQuery]);
 
   if (!project && !remoteSynced) {
     return (
@@ -149,9 +195,9 @@ function LiveVisualisationInner({
   if (!project) {
     return (
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-[var(--foreground)]">
-        <p>Project not found. Open it from the live project list, or check that the analysis server returned this id.</p>
+        <p>Project not found. Open it from the live analysis list, or check that the analysis server returned this id.</p>
         <Link href={basePath} className="mt-2 inline-block font-medium text-link underline">
-          Back to projects
+          Back to analyses
         </Link>
       </div>
     );
@@ -166,6 +212,7 @@ function LiveVisualisationInner({
   }
 
   const backHref = basePath;
+  const scopeLabel = scopeDefectFileId ? scopeDefectFileId.slice(0, 8) : null;
 
   return (
     <div className="fixed inset-0 left-0 top-0 z-[300] flex h-[100dvh] w-screen max-w-none flex-col bg-white">
@@ -178,7 +225,7 @@ function LiveVisualisationInner({
               style={{ color: CAPTION_STRONG }}
             >
               <ArrowLeft className="h-5 w-5 shrink-0" style={{ color: CAPTION_MUTED }} aria-hidden />
-              <span className="hidden sm:inline">Live projects</span>
+              <span className="hidden sm:inline">Analyses</span>
             </Link>
             <p className="mt-1 truncate text-xs font-medium" style={{ color: CAPTION_STRONG }}>
               Live analysis
@@ -187,6 +234,11 @@ function LiveVisualisationInner({
                 · {project.name}
               </span>
             </p>
+            {scopeLabel ? (
+              <p className="mt-0.5 truncate text-[10px] font-mono" style={{ color: CAPTION_MUTED }} title={scopeDefectFileId ?? ""}>
+                Defect file · {scopeLabel}…
+              </p>
+            ) : null}
             {defectFileHydrate.loading ? (
               <p className="mt-1 truncate text-[11px] md:text-xs" style={{ color: CAPTION_MUTED }}>
                 Loading defect data from analysis server…
@@ -197,12 +249,13 @@ function LiveVisualisationInner({
                 title={defectFileHydrate.error}
               >
                 Could not load defect data
-                {project.defectFileId ? ` (${project.defectFileId.slice(0, 8)}…)` : ""} — {defectFileHydrate.error}
+                {scopeLabel ? ` (${scopeLabel}…)` : project.defectFileId ? ` (${project.defectFileId.slice(0, 8)}…)` : ""} —{" "}
+                {defectFileHydrate.error}
               </p>
             ) : billie?.rows?.length ? (
               <p className="mt-1 truncate text-[11px] md:text-xs" style={{ color: CAPTION_MUTED }} title={billie.mergeFileName}>
                 <span className="font-medium" style={{ color: CAPTION_STRONG }}>
-                  Latest
+                  Loaded
                 </span>
                 <span> · </span>
                 {formatAnalysisTimestamp(billie.updatedAt)}
@@ -225,7 +278,7 @@ function LiveVisualisationInner({
           </div>
         </div>
 
-        <ConnectivityMindGraphD3 projectId={projectId} />
+        <ConnectivityMindGraphD3 projectId={projectId} defectFileId={scopeDefectFileId} />
       </div>
     </div>
   );
@@ -234,10 +287,18 @@ function LiveVisualisationInner({
 export function LiveDataVisualisationDraft({
   projectId,
   basePath = "/live",
+  defectFileFromQuery = null,
 }: {
   projectId: string;
   basePath?: string;
+  defectFileFromQuery?: string | null;
 }) {
   /** Render in-tree (no portal) so SSR/client hydration stay aligned with the route. */
-  return <LiveVisualisationInner projectId={projectId} basePath={basePath} />;
+  return (
+    <LiveVisualisationInner
+      projectId={projectId}
+      basePath={basePath}
+      defectFileFromQuery={defectFileFromQuery}
+    />
+  );
 }

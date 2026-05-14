@@ -14,8 +14,11 @@ export type CategoryAggregate = {
 };
 
 /** Register rows when present (upload / seed); otherwise rich demo graph mock so the page is never empty. */
-export function getDefectRowsForVisualisation(projectId: string): HistoricalDefectTableRow[] {
-  const base = getLiveRegisterBaseRows(projectId);
+export function getDefectRowsForVisualisation(
+  projectId: string,
+  defectFileId?: string | null,
+): HistoricalDefectTableRow[] {
+  const base = getLiveRegisterBaseRows(projectId, defectFileId);
   if (base.length > 0) return base;
   return getLiveVisualisationDemoRows(projectId);
 }
@@ -24,8 +27,11 @@ export function getDefectRowsForVisualisation(projectId: string): HistoricalDefe
  * One entry per defect category: count and rows for sidebar / bulk strategy assignment.
  * Suitable for large registers (2000+ rows) because the graph plots categories only.
  */
-export function aggregateDefectsByCategory(projectId: string): CategoryAggregate[] {
-  const rows = getDefectRowsForVisualisation(projectId);
+export function aggregateDefectsByCategory(
+  projectId: string,
+  defectFileId?: string | null,
+): CategoryAggregate[] {
+  const rows = getDefectRowsForVisualisation(projectId, defectFileId);
   const map = new Map<string, HistoricalDefectTableRow[]>();
 
   for (const row of rows) {

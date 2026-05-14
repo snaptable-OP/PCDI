@@ -1,6 +1,7 @@
 import {
   extractHistoricalRowsFromDefectFilePayload,
   extractMergeFileInfoFromDefectFilePayload,
+  extractOriginalUploadInfoFromDefectFilePayload,
   mergeDefectFilePayloadsForHydration,
 } from "@/lib/pcdi/defect-file-merge-info";
 import { extractDefectFileIdFromProjectDefectFilesQueryBody } from "@/lib/pcdi/extract-backend-columns";
@@ -27,6 +28,7 @@ async function applyDefectFilePayloadToSession(
 
   const fromJson = extractHistoricalRowsFromDefectFilePayload(body, projectId);
   if (fromJson?.length) {
+    const orig = extractOriginalUploadInfoFromDefectFilePayload(body);
     writeBillieMergeSession({
       projectId,
       defectFileId: id,
@@ -34,8 +36,11 @@ async function applyDefectFilePayloadToSession(
       rows: fromJson,
       rowSignature: rowSignatureFromRows(fromJson),
       updatedAt: new Date().toISOString(),
+      ...(orig
+        ? { originalUploadFileUrl: orig.originalUploadFileUrl, originalUploadFileName: orig.originalUploadFileName }
+        : {}),
     });
-    notifyLiveSelectionsUpdated(projectId);
+    notifyLiveSelectionsUpdated(projectId, id);
     return { ok: true, source: "json-rows" };
   }
 
@@ -56,6 +61,7 @@ async function applyDefectFilePayloadToSession(
         error: pj.error ?? "Could not parse the merged spreadsheet from the defect file.",
       };
     }
+    const orig = extractOriginalUploadInfoFromDefectFilePayload(body);
     writeBillieMergeSession({
       projectId,
       defectFileId: id,
@@ -64,8 +70,11 @@ async function applyDefectFilePayloadToSession(
       rows: pj.rows,
       rowSignature: rowSignatureFromRows(pj.rows),
       updatedAt: new Date().toISOString(),
+      ...(orig
+        ? { originalUploadFileUrl: orig.originalUploadFileUrl, originalUploadFileName: orig.originalUploadFileName }
+        : {}),
     });
-    notifyLiveSelectionsUpdated(projectId);
+    notifyLiveSelectionsUpdated(projectId, id);
     return { ok: true, source: "merge-xlsx" };
   }
 

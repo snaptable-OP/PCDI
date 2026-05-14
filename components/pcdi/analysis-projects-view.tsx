@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { liveProjectPrimaryHref } from "@/lib/pcdi/live-project-ingest-status";
+import { useLiveProjectListSync } from "@/lib/pcdi/use-live-project-list-sync";
 import { useHistoricalProjectsStore } from "@/lib/pcdi/projects-store";
 import type { AnalysisModule, HistoricalProject } from "@/lib/pcdi/types";
 
@@ -49,6 +50,8 @@ export type AnalysisProjectsViewProps = {
   title: string;
   /** Optional; omitted or empty = no subheading under the title. */
   description?: string;
+  /** When true, hide the project table (e.g. home shows stats + Create project only). */
+  hideProjectTable?: boolean;
 };
 
 export function AnalysisProjectsView({
@@ -56,108 +59,11 @@ export function AnalysisProjectsView({
   basePath,
   title,
   description = "",
+  hideProjectTable = false,
 }: AnalysisProjectsViewProps) {
   const projects = useHistoricalProjectsStore((s) => s.projects);
 
-  const [liveSyncLoading, setLiveSyncLoading] = useState(module === "live");
-  const [liveSyncError, setLiveSyncError] = useState<string | null>(null);
-
-  /**
-   * Points at the in-flight `AbortController` for the latest `/api/defect-projects` call.
-   * Used instead of a monotonic "generation" counter so Strict Mode remounts do not discard
-   * a successful response that finished after cleanup bumped the counter.
-   */
-  const liveFetchLeaderRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    if (module !== "live") return;
-
-    const SYNC_TIMEOUT_MS = 18_000;
-
-    function isAbortError(e: unknown): boolean {
-      return (
-        (e instanceof DOMException && e.name === "AbortError") ||
-        (typeof e === "object" &&
-          e !== null &&
-          "name" in e &&
-          (e as { name?: string }).name === "AbortError")
-      );
-    }
-
-    async function syncLiveProjects() {
-      liveFetchLeaderRef.current?.abort();
-      const controller = new AbortController();
-      liveFetchLeaderRef.current = controller;
-
-      setLiveSyncLoading(true);
-      setLiveSyncError(null);
-      const timeoutId = window.setTimeout(() => controller.abort(), SYNC_TIMEOUT_MS);
-      try {
-        const res = await fetch("/api/defect-projects", {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        window.clearTimeout(timeoutId);
-        if (liveFetchLeaderRef.current !== controller) return;
-
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: string;
-          projects?: HistoricalProject[];
-        };
-        if (!res.ok) {
-          setLiveSyncError(body.error ?? "Could not load projects from the analysis server.");
-          return;
-        }
-        const list = Array.isArray(body.projects) ? body.projects : [];
-        useHistoricalProjectsStore.getState().replaceProjectsForModule("live", list);
-      } catch (e) {
-        window.clearTimeout(timeoutId);
-        if (liveFetchLeaderRef.current !== controller) return;
-        const aborted = isAbortError(e);
-        setLiveSyncError(
-          aborted
-            ? "Timed out waiting for the analysis server. Check BILLIE_API_BASE / network, or try again."
-            : "Could not load projects from the analysis server.",
-        );
-      } finally {
-        window.clearTimeout(timeoutId);
-        if (liveFetchLeaderRef.current === controller) {
-          setLiveSyncLoading(false);
-        }
-      }
-    }
-
-    /** Persist rehydration from localStorage can finish after the first paint; syncing before that races merge/wipes. */
-    const persistApi = useHistoricalProjectsStore.persist;
-    let unsubHydration: (() => void) | undefined;
-    const kickSync = () => {
-      void syncLiveProjects();
-    };
-    if (persistApi.hasHydrated()) {
-      kickSync();
-    } else {
-      unsubHydration = persistApi.onFinishHydration(() => {
-        kickSync();
-      });
-    }
-    /** If storage throws, persist may never mark hydrated — still load projects from the API. */
-    const hydrationFallbackId = window.setTimeout(() => {
-      if (!persistApi.hasHydrated()) kickSync();
-    }, 750);
-
-    function onVisibilityChange() {
-      if (document.visibilityState === "visible") void syncLiveProjects();
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.clearTimeout(hydrationFallbackId);
-      unsubHydration?.();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      liveFetchLeaderRef.current?.abort();
-      liveFetchLeaderRef.current = null;
-      setLiveSyncLoading(false);
-    };
-  }, [module]);
+  const { liveSyncLoading, liveSyncError } = useLiveProjectListSync(module === "live");
 
   const filtered = useMemo(() => {
     const list = projects.filter((p) => p.analysisModule === module);
@@ -167,20 +73,33 @@ export function AnalysisProjectsView({
   }, [projects, module]);
 
   const desc = description.trim();
+  const titleTrim = title.trim();
+  const showHeadingColumn =
+    Boolean(titleTrim) ||
+    Boolean(desc) ||
+    (module === "live" && !hideProjectTable && liveSyncLoading && filtered.length > 0);
 
   return (
     <div className="mx-auto w-full min-w-0 max-w-5xl">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          {desc ? <p className="mt-1 text-[var(--muted-foreground)]">{desc}</p> : null}
-          {module === "live" && liveSyncLoading && filtered.length > 0 ? (
-            <p className="mt-1 text-xs text-[var(--muted-foreground)]">Refreshing project list…</p>
-          ) : null}
-        </div>
+      <div
+        className={
+          showHeadingColumn
+            ? "flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            : "flex w-full justify-end"
+        }
+      >
+        {showHeadingColumn ? (
+          <div>
+            {titleTrim ? <h1 className="text-2xl font-semibold">{titleTrim}</h1> : null}
+            {desc ? <p className="mt-1 text-[var(--muted-foreground)]">{desc}</p> : null}
+            {module === "live" && !hideProjectTable && liveSyncLoading && filtered.length > 0 ? (
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">Refreshing project list…</p>
+            ) : null}
+          </div>
+        ) : null}
         <Link
           href={`${basePath}/new`}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-[color:var(--water-2)] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 active:brightness-95"
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-[color:var(--water-2)] px-4 py-2.5 text-sm font-medium text-white hover:brightness-110 active:brightness-95"
         >
           <Plus className="h-4 w-4" />
           Create project
@@ -200,6 +119,7 @@ export function AnalysisProjectsView({
         </div>
       ) : null}
 
+      {hideProjectTable ? null : (
       <div className="mt-8 overflow-hidden rounded-xl bg-[var(--surface)] shadow-[var(--card-shadow)]">
         <table className="qm-table w-full text-left text-sm">
           <thead>
@@ -290,6 +210,7 @@ export function AnalysisProjectsView({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

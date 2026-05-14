@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { APP_NAV } from "@/components/layout/nav-config";
+import { ProjectSelector } from "@/components/layout/project-selector";
 
 /**
  * Root chrome — navigation is static (no usePathname) so the shell never triggers
@@ -19,12 +20,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             href="/"
             className="text-lg font-semibold tracking-tight text-[color:var(--sidebar-heading-text)]"
           >
-            PCDI
+            RESOLV MACHINE
           </Link>
           <p className="mt-1 text-xs leading-snug text-[color:var(--sidebar-subtitle-text)]">
-            Post-Completion Defects Intelligence
+            Post-completion defect intelligence
           </p>
         </div>
+        <ProjectSelector />
         <nav className="flex flex-col gap-0.5 p-3" aria-label="Main">
           {APP_NAV.map(({ href, label, Icon }) => (
             <Link
@@ -47,7 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               href="/"
               className="inline-flex min-h-[44px] min-w-[44px] items-center text-sm font-semibold text-heading outline-none ring-[var(--ring)] focus-visible:ring-2"
             >
-              PCDI
+              RESOLV MACHINE
             </Link>
           </div>
           <nav

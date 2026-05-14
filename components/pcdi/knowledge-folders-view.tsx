@@ -1,7 +1,7 @@
 "use client";
 
 import { FolderPlus, Link2, Loader2, Trash2, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   formatBytes,
   PDF_MAX_BYTES,
@@ -9,6 +9,7 @@ import {
   type KnowledgeFolder,
   useKnowledgeFoldersStore,
 } from "@/lib/pcdi/knowledge-folders-store";
+import { useLiveSelectedProjectStore } from "@/lib/pcdi/live-selected-project-store";
 
 function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
   if (status === "active") {
@@ -34,7 +35,12 @@ function StatusBadge({ status }: { status: KnowledgeDocument["status"] }) {
 }
 
 export function KnowledgeFoldersView() {
-  const folders = useKnowledgeFoldersStore((s) => s.folders);
+  const projectId = useLiveSelectedProjectStore((s) => s.selectedProjectId);
+  const foldersAll = useKnowledgeFoldersStore((s) => s.folders);
+  const folders = useMemo(() => foldersAll.filter((f) => projectId && f.projectId === projectId), [
+    foldersAll,
+    projectId,
+  ]);
   const documents = useKnowledgeFoldersStore((s) => s.documents);
   const addFolder = useKnowledgeFoldersStore((s) => s.addFolder);
   const removeFolder = useKnowledgeFoldersStore((s) => s.removeFolder);
@@ -51,7 +57,8 @@ export function KnowledgeFoldersView() {
 
   const onCreateFolder = (e: React.FormEvent) => {
     e.preventDefault();
-    const id = addFolder(newName);
+    if (!projectId) return;
+    const id = addFolder(newName, projectId);
     if (id) setNewName("");
   };
 
@@ -95,7 +102,18 @@ export function KnowledgeFoldersView() {
         </p>
       </header>
 
-      <form onSubmit={onCreateFolder} className="mb-8 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-sm sm:flex-row sm:items-end">
+      {!projectId ? (
+        <p className="rounded-lg border border-dashed border-border bg-surface-muted/40 px-4 py-8 text-center text-sm text-foreground-muted">
+          Choose a project from the sidebar selector to manage folders for that project.
+        </p>
+      ) : null}
+
+      {projectId ? (
+        <>
+          <form
+            onSubmit={onCreateFolder}
+            className="mb-8 flex flex-col gap-3 rounded-xl border border-border bg-surface p-4 shadow-sm sm:flex-row sm:items-end"
+          >
         <div className="min-w-0 flex-1">
           <label htmlFor="new-folder-name" className="mb-1 block text-xs font-medium uppercase tracking-wide text-foreground-muted">
             New folder
@@ -115,9 +133,9 @@ export function KnowledgeFoldersView() {
           <FolderPlus className="h-4 w-4" aria-hidden />
           Create folder
         </button>
-      </form>
+          </form>
 
-      {folders.length === 0 ? (
+          {folders.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border bg-surface-muted/40 px-4 py-8 text-center text-sm text-foreground-muted">
           No folders yet. Create one to attach PDFs or SharePoint sources.
         </p>
@@ -192,7 +210,9 @@ export function KnowledgeFoldersView() {
             </li>
           ))}
         </ul>
-      )}
+          )}
+        </>
+      ) : null}
 
       {shareTarget ? (
         <div

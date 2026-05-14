@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export const KNOWLEDGE_FOLDERS_STORAGE_KEY = "pcdi-knowledge-folders-v1";
+export const KNOWLEDGE_FOLDERS_STORAGE_KEY = "pcdi-knowledge-folders-v2";
 
 export type KnowledgeDocumentStatus = "uploading" | "parsing" | "active" | "error";
 
@@ -21,6 +21,8 @@ export type KnowledgeDocument = {
 
 export type KnowledgeFolder = {
   id: string;
+  /** Billie defect project id — folders are scoped per live project. */
+  projectId: string;
   name: string;
   createdAt: number;
 };
@@ -28,7 +30,7 @@ export type KnowledgeFolder = {
 type KnowledgeFoldersState = {
   folders: KnowledgeFolder[];
   documents: KnowledgeDocument[];
-  addFolder: (name: string) => string;
+  addFolder: (name: string, projectId: string) => string;
   removeFolder: (id: string) => void;
   /** Validates size elsewhere; simulates upload → parse → active */
   addPdfDocument: (folderId: string, fileName: string, sizeBytes: number) => void;
@@ -50,15 +52,16 @@ export const useKnowledgeFoldersStore = create<KnowledgeFoldersState>()(
       folders: [],
       documents: [],
 
-      addFolder: (name) => {
+      addFolder: (name, projectId) => {
         const trimmed = name.trim();
-        if (!trimmed) return "";
+        const pid = projectId.trim();
+        if (!trimmed || !pid) return "";
         const id =
           typeof crypto !== "undefined" && crypto.randomUUID
             ? crypto.randomUUID()
             : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
         set((s) => ({
-          folders: [...s.folders, { id, name: trimmed, createdAt: Date.now() }],
+          folders: [...s.folders, { id, projectId: pid, name: trimmed, createdAt: Date.now() }],
         }));
         return id;
       },

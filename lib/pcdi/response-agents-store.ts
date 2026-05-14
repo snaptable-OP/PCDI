@@ -3,10 +3,11 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export const RESPONSE_AGENTS_STORAGE_KEY = "pcdi-response-agents-v1";
+export const RESPONSE_AGENTS_STORAGE_KEY = "pcdi-response-agents-v2";
 
 export type ResponseStrategyAgent = {
   id: string;
+  projectId: string;
   /** Selected taxonomy v2 response strategy label (same strings as live strategy picker). */
   name: string;
   /** Instruction / system-style prompt for this agent */
@@ -18,10 +19,15 @@ export type ResponseStrategyAgent = {
 
 type ResponseAgentsState = {
   agents: ResponseStrategyAgent[];
-  addAgent: (input: { name: string; prompt: string; knowledgeFolderId: string }) => string;
+  addAgent: (input: {
+    projectId: string;
+    name: string;
+    prompt: string;
+    knowledgeFolderId: string;
+  }) => string;
   updateAgent: (
     id: string,
-    updates: Partial<Pick<ResponseStrategyAgent, "name" | "prompt" | "knowledgeFolderId">>,
+    updates: Partial<Pick<ResponseStrategyAgent, "name" | "prompt" | "knowledgeFolderId" | "projectId">>,
   ) => void;
   removeAgent: (id: string) => void;
 };
@@ -31,7 +37,9 @@ export const useResponseAgentsStore = create<ResponseAgentsState>()(
     (set) => ({
       agents: [],
 
-      addAgent: ({ name, prompt, knowledgeFolderId }) => {
+      addAgent: ({ projectId, name, prompt, knowledgeFolderId }) => {
+        const pid = projectId.trim();
+        if (!pid) return "";
         const id =
           typeof crypto !== "undefined" && crypto.randomUUID
             ? crypto.randomUUID()
@@ -42,6 +50,7 @@ export const useResponseAgentsStore = create<ResponseAgentsState>()(
             ...s.agents,
             {
               id,
+              projectId: pid,
               name: name.trim(),
               prompt: prompt.trim(),
               knowledgeFolderId,
@@ -62,6 +71,7 @@ export const useResponseAgentsStore = create<ResponseAgentsState>()(
                   ...updates,
                   name: updates.name !== undefined ? updates.name.trim() : a.name,
                   prompt: updates.prompt !== undefined ? updates.prompt.trim() : a.prompt,
+                  projectId: updates.projectId !== undefined ? updates.projectId.trim() : a.projectId,
                   updatedAt: Date.now(),
                 }
               : a,

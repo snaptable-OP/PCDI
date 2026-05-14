@@ -10,9 +10,9 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "PCDI — Post-Completion Defects Intelligence",
+  title: "RESOLV MACHINE — Post-completion defect intelligence",
   description:
-    "Mock UI for defect analysis per project, knowledge mapping, and master prompts.",
+    "Defect analysis per project, knowledge mapping, response strategy agents, and master prompts.",
 };
 
 export const viewport: Viewport = {

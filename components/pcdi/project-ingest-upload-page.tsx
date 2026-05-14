@@ -120,7 +120,13 @@ export function ProjectIngestUploadPage({ basePath, module, projectId }: Project
             projectId={projectId}
             columns={uploadPayload.columns}
             source={{ fileName: uploadPayload.fileName, headerRow: uploadPayload.headerRow }}
-            continueHref={`${basePath}/${projectId}/defects`}
+            continueHref={
+              uploadPayload.defectFileId != null &&
+              typeof uploadPayload.defectFileId === "string" &&
+              uploadPayload.defectFileId.trim() !== ""
+                ? `${basePath}/${projectId}/defects?defectFile=${encodeURIComponent(uploadPayload.defectFileId.trim())}`
+                : `${basePath}/${projectId}/defects`
+            }
             continueLabel="Analyse Defects"
             defectFileId={uploadPayload.defectFileId}
             mode={module === "live" ? "live" : "historical"}

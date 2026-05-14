@@ -112,6 +112,140 @@ export function extractMergeFileInfoFromDefectFilePayload(data: unknown): {
   return null;
 }
 
+/** User-uploaded workbook URL from defect-file payloads (embedded pictures usually live here, not in merge export). */
+export function extractOriginalUploadInfoFromDefectFilePayload(data: unknown): {
+  originalUploadFileUrl: string;
+  originalUploadFileName?: string;
+} | null {
+  const payload = unwrapBillieDefectFilePayload(data);
+  if (payload == null || typeof payload !== "object") return null;
+
+  const tryRecord = (o: Record<string, unknown>): { originalUploadFileUrl: string; originalUploadFileName?: string } | null => {
+    const rawUrl =
+      o.sourceFileUrl ??
+      o.source_file_url ??
+      o.uploadFileUrl ??
+      o.upload_file_url ??
+      o.originalSpreadsheetUrl ??
+      o.originalFileUrl ??
+      o.originalExcelUrl ??
+      o.userUploadUrl;
+    if (typeof rawUrl === "string" && isHttpUrl(rawUrl.trim())) {
+      const nameRaw =
+        o.sourceFileName ??
+        o.source_file_name ??
+        o.uploadFileName ??
+        o.originalFileName ??
+        o.upload_file_name;
+      return {
+        originalUploadFileUrl: rawUrl.trim(),
+        originalUploadFileName: typeof nameRaw === "string" && nameRaw.trim() ? nameRaw.trim() : undefined,
+      };
+    }
+    const nestedKeys = [o.defectFile, o.defect_file, o.file, o.latestDefectFile, o.record, o.result] as const;
+    for (const nest of nestedKeys) {
+      if (nest != null && typeof nest === "object" && !Array.isArray(nest)) {
+        const inner = tryRecord(nest as Record<string, unknown>);
+        if (inner) return inner;
+      }
+    }
+    return null;
+  };
+
+  const root = payload as Record<string, unknown>;
+  const direct = tryRecord(root);
+  if (direct) return direct;
+
+  const nests = [root.result, root.data, root.payload, root.content, root.body, root.defectFile] as const;
+  for (const n of nests) {
+    if (n == null) continue;
+    if (Array.isArray(n) && n.length > 0) {
+      const inner =
+        tryRecord(n[n.length - 1] as Record<string, unknown>) ?? tryRecord(n[0] as Record<string, unknown>);
+      if (inner) return inner;
+      continue;
+    }
+    if (typeof n === "object" && !Array.isArray(n)) {
+      const inner = tryRecord(n as Record<string, unknown>);
+      if (inner) return inner;
+    }
+  }
+
+  return null;
+}
+
+function tryReadProgressPercentage(o: unknown): number | null {
+  if (!o || typeof o !== "object" || Array.isArray(o)) return null;
+  const r = o as Record<string, unknown>;
+  const keys = [
+    "progressPercentage",
+    "progress_percent",
+    "progressPercent",
+    "percentComplete",
+    "percentageComplete",
+  ] as const;
+  for (const k of keys) {
+    const v = r[k];
+    if (typeof v === "number" && Number.isFinite(v)) {
+      return Math.min(100, Math.max(0, Math.round(v)));
+    }
+    if (typeof v === "string" && v.trim()) {
+      const n = parseFloat(v.trim());
+      if (Number.isFinite(n)) return Math.min(100, Math.max(0, Math.round(n)));
+    }
+  }
+  return null;
+}
+
+/** Reads `progressPercentage` (and aliases) from Billie status payloads, including `{ code, data }` envelopes. */
+export function extractProgressPercentageFromDefectFileStatusPayload(data: unknown): number | null {
+  const unwrapped = unwrapBillieDefectFilePayload(data);
+  const fromUnwrapped = tryReadProgressPercentage(unwrapped);
+  if (fromUnwrapped != null) return fromUnwrapped;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const root = data as Record<string, unknown>;
+    for (const n of [root.result, root.data, root.payload, root.content, root.body] as const) {
+      if (n == null) continue;
+      const p = tryReadProgressPercentage(n);
+      if (p != null) return p;
+    }
+    return tryReadProgressPercentage(data);
+  }
+  return null;
+}
+
+/**
+ * Normalises defect-file status polling (GET …/status). Billie uses `{ code: 200, data: { isProcessed, mergeFileUrl } }`;
+ * older UI code expected `result`; this reads both.
+ */
+export function extractDefectFileStatusFromPollPayload(data: unknown): {
+  isProcessed?: string;
+  mergeFileUrl?: string;
+  mergeFileName?: string;
+  /** 0–100 from API while processing; often 100 when complete. */
+  progressPercentage?: number | null;
+} {
+  const merge = extractMergeFileInfoFromDefectFilePayload(data);
+  const unwrapped = unwrapBillieDefectFilePayload(data);
+  const tryRead = (o: unknown): string | undefined => {
+    if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
+    const r = o as Record<string, unknown>;
+    const ip = r.isProcessed ?? r.processingStatus ?? r.processState;
+    return typeof ip === "string" && ip.trim() ? ip.trim() : undefined;
+  };
+  let isProcessed = tryRead(unwrapped);
+  if (!isProcessed && data && typeof data === "object" && !Array.isArray(data)) {
+    const root = data as Record<string, unknown>;
+    isProcessed = tryRead(root.result) ?? tryRead(root.data);
+  }
+  return {
+    isProcessed,
+    mergeFileUrl: merge?.mergeFileUrl,
+    mergeFileName: merge?.mergeFileName,
+    progressPercentage: extractProgressPercentageFromDefectFileStatusPayload(data),
+  };
+}
+
 function asRowArray(x: unknown): unknown[] | null {
   if (Array.isArray(x)) return x;
   return null;
@@ -270,6 +404,10 @@ function mapLooseApiRowToHistorical(
     if (n >= 1) excelSheetRow = n;
   }
 
+  const itemIdRaw = o.itemId ?? o.item_id ?? o.ItemId ?? o.itemID;
+  const itemId =
+    typeof itemIdRaw === "string" && itemIdRaw.trim().length > 0 ? itemIdRaw.trim() : undefined;
+
   return {
     id,
     defectDescription: defectDescriptionOut,
@@ -282,5 +420,6 @@ function mapLooseApiRowToHistorical(
     aiSuggestedStrategies,
     responseStrategyTaxonomy,
     ...(excelSheetRow != null ? { excelSheetRow } : {}),
+    ...(itemId != null ? { itemId } : {}),
   };
 }

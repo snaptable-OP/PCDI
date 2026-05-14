@@ -81,26 +81,16 @@ function DraftProjectCreate({ basePath, module }: { basePath: string; module: An
         hint?: string;
       };
       if (!res.ok) {
-        const detailHint =
-          body.detail !== undefined
-            ? ` ${typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)}`
-            : "";
-        const parts = [
-          body.error ?? "Could not create project on the analysis server.",
-          body.cause,
-          body.hint,
-          detailHint.trim() ? detailHint : null,
-        ].filter(Boolean);
-        setError(parts.join("\n\n"));
+        setError(
+          [body.error ?? "Could not create project on the analysis server.", body.hint, body.cause]
+            .filter(Boolean)
+            .join("\n"),
+        );
         return;
       }
       const projectId = body.id;
       if (!projectId || typeof projectId !== "string") {
-        const extra =
-          body.detail !== undefined
-            ? ` Response: ${typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)}`
-            : "";
-        setError(["Server did not return a project id.", extra].filter(Boolean).join("\n"));
+        setError(body.error ?? "Could not create project — no project id in the response.");
         return;
       }
 

@@ -10,7 +10,7 @@ export type StructuralType =
   | "mixed";
 
 /**
- * Active PCDI ingest: defect_description, historical_response, reference_document_name, unmapped
+ * Active ingest: defect_description, historical_response, reference_document_name, unmapped
  */
 export type PcdiMappedField =
   | "defect_description"
@@ -112,10 +112,14 @@ export type HistoricalDefectTableRow = {
    */
   responseStrategyTaxonomy?: string[];
   /**
-   * 1-based worksheet row number for this defect in the **original** uploaded / merged spreadsheet (first sheet
-   * layout Billie uses). Used to scroll the Excel preview to the correct row; omitted for prototype seed rows.
+   * 1-based worksheet row in the **original** upload to highlight in the Excel preview.
+   * Prefer the merged export’s `row_number` (or Billie API field) when present; otherwise the physical row in the merged sheet.
    */
   excelSheetRow?: number;
+  /**
+   * Billie defect-file content key (`itemId`) for batch strategy / response saves — from API or merged column like `item_id`.
+   */
+  itemId?: string;
 };
 
 export type AnalysisSessionStatus = "draft" | "in_progress" | "complete";
