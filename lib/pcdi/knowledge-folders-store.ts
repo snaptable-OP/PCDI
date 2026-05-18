@@ -3,11 +3,12 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export const KNOWLEDGE_FOLDERS_STORAGE_KEY = "pcdi-knowledge-folders-v2";
+export const KNOWLEDGE_FOLDERS_STORAGE_KEY = "pcdi-knowledge-folders-v4";
 
 export type KnowledgeDocumentStatus = "uploading" | "parsing" | "active" | "error";
 
 export type KnowledgeDocument = {
+  /** Defect reference file id from API (or temporary client id while uploading). */
   id: string;
   folderId: string;
   fileName: string;
@@ -17,24 +18,32 @@ export type KnowledgeDocument = {
   source: "pdf" | "sharepoint";
   /** SharePoint link when source is sharepoint */
   remoteUrl?: string;
+  sourceFileUrl?: string;
+  referenceFileId?: string;
 };
 
 export type KnowledgeFolder = {
   id: string;
-  /** Billie defect project id — folders are scoped per live project. */
   projectId: string;
+  knowledgeId: string;
   name: string;
+  description?: string;
+  status?: string;
   createdAt: number;
+  updatedAt?: number;
 };
 
 type KnowledgeFoldersState = {
   folders: KnowledgeFolder[];
   documents: KnowledgeDocument[];
-  addFolder: (name: string, projectId: string) => string;
-  removeFolder: (id: string) => void;
-  /** Validates size elsewhere; simulates upload → parse → active */
-  addPdfDocument: (folderId: string, fileName: string, sizeBytes: number) => void;
-  /** Mock integration: queued doc goes parsing → active */
+  replaceFoldersForProject: (projectId: string, folders: KnowledgeFolder[]) => void;
+  upsertFolder: (folder: KnowledgeFolder) => void;
+  removeFolderLocal: (id: string) => void;
+  replaceDocumentsForFolder: (folderId: string, documents: KnowledgeDocument[]) => void;
+  replaceDocumentsForProject: (projectId: string, documents: KnowledgeDocument[]) => void;
+  upsertDocument: (document: KnowledgeDocument) => void;
+  removeDocumentLocal: (id: string) => void;
+  /** Local-only placeholder for SharePoint (not in reference-file API yet). */
   connectSharePointFolder: (folderId: string, folderUrl: string, label?: string) => void;
 };
 
@@ -47,49 +56,69 @@ function scheduleStatus(docId: string, status: KnowledgeDocumentStatus, delayMs:
 }
 
 export const useKnowledgeFoldersStore = create<KnowledgeFoldersState>()(
-    persist(
-    (set) => ({
+  persist(
+    (set, get) => ({
       folders: [],
       documents: [],
 
-      addFolder: (name, projectId) => {
-        const trimmed = name.trim();
-        const pid = projectId.trim();
-        if (!trimmed || !pid) return "";
-        const id =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `fld_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      replaceFoldersForProject: (projectId, folders) =>
         set((s) => ({
-          folders: [...s.folders, { id, projectId: pid, name: trimmed, createdAt: Date.now() }],
-        }));
-        return id;
-      },
+          folders: [...s.folders.filter((f) => f.projectId !== projectId), ...folders],
+        })),
 
-      removeFolder: (id) =>
+      upsertFolder: (folder) =>
+        set((s) => {
+          const rest = s.folders.filter((f) => f.id !== folder.id);
+          return { folders: [...rest, folder] };
+        }),
+
+      removeFolderLocal: (id) =>
         set((s) => ({
           folders: s.folders.filter((f) => f.id !== id),
           documents: s.documents.filter((d) => d.folderId !== id),
         })),
 
-      addPdfDocument: (folderId, fileName, sizeBytes) => {
-        const id =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-        const doc: KnowledgeDocument = {
-          id,
-          folderId,
-          fileName,
-          sizeBytes,
-          status: "uploading",
-          addedAt: Date.now(),
-          source: "pdf",
-        };
-        set((s) => ({ documents: [...s.documents, doc] }));
-        scheduleStatus(id, "parsing", 400);
-        scheduleStatus(id, "active", 1600);
+      replaceDocumentsForFolder: (folderId, documents) =>
+        set((s) => ({
+          documents: [
+            ...s.documents.filter((d) => d.folderId !== folderId),
+            ...documents.map((d) => ({
+              ...d,
+              referenceFileId: d.referenceFileId ?? d.id,
+            })),
+          ],
+        })),
+
+      replaceDocumentsForProject: (projectId, documents) => {
+        const folderIds = new Set(
+          get()
+            .folders.filter((f) => f.projectId === projectId)
+            .map((f) => f.id),
+        );
+        set((s) => ({
+          documents: [
+            ...s.documents.filter((d) => !folderIds.has(d.folderId)),
+            ...documents.map((d) => ({
+              ...d,
+              referenceFileId: d.referenceFileId ?? d.id,
+            })),
+          ],
+        }));
       },
+
+      upsertDocument: (document) =>
+        set((s) => {
+          const rest = s.documents.filter((d) => d.id !== document.id);
+          return {
+            documents: [
+              ...rest,
+              { ...document, referenceFileId: document.referenceFileId ?? document.id },
+            ],
+          };
+        }),
+
+      removeDocumentLocal: (id) =>
+        set((s) => ({ documents: s.documents.filter((d) => d.id !== id) })),
 
       connectSharePointFolder: (folderId, folderUrl, label) => {
         const id =

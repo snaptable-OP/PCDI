@@ -23,6 +23,7 @@ import {
 import { VISUALISATION_STRATEGY_OPTIONS } from "@/lib/pcdi/live-visualisation-strategies";
 import { dataSuggestedStrategyHighlightStyles } from "@/lib/pcdi/mind-map-palette";
 import type { CategoryAggregate } from "@/lib/pcdi/defect-category-aggregation";
+import { buildMockDefectResponseText } from "@/lib/pcdi/mock-defect-response-text";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
 
 function readSelectionsMap(projectId: string, defectFileId?: string | null): Record<string, string> {
@@ -210,62 +211,6 @@ function strategyForRowGenerate(
   );
 }
 
-function buildMockDefectResponse(
-  defectDescription: string,
-  strategyLabel: string,
-  variant: number,
-): string {
-  const trimmed = defectDescription.trim();
-  const short =
-    trimmed.length > 120 ? `${trimmed.slice(0, 120)}…` : trimmed;
-
-  const h = (s: string) => {
-    let n = 0;
-    for (let i = 0; i < s.length; i++) n = (n * 131 + s.charCodeAt(i)) | 0;
-    return n;
-  };
-  const seed = (h(trimmed) ^ h(strategyLabel)) + variant * 911;
-
-  const asnz = [
-    "AS/NZS 2904",
-    "AS 1530.4",
-    "AS 3600",
-    "AS 4100",
-    "AS 1720.1",
-    "AS/NZS 3000",
-    "AS 4654.2",
-    "NZS 3604",
-    "AS/NZS 1170.2",
-    "AS 1668.1",
-  ];
-  const pick = (i: number) => asnz[Math.abs(seed + i) % asnz.length];
-  const stdA = pick(0);
-  const stdB = pick(1);
-
-  const evidenceLine =
-    "Evidence to cite in the response pack should include: applicable NCC (Volumes One/Two/Three as relevant) and " +
-    stdA +
-    " / " +
-    stdB +
-    ", the Fire Engineering Report (FER) and any Deemed-to-Satisfy or performance pathway clarifications, manufacturer specifications and installation manuals, relevant test reports (e.g. system / penetration / reaction-to-fire evidence), and product statements (e.g. CodeMark / technical datasheets) so claims are traceable to named documents.";
-
-  const blocks = [
-    `Recommended approach: ${strategyLabel}. ` +
-      "Frame the reply around demonstrable compliance: map the defect to the NCC Performance Requirements (or acceptable construction / verification methods), then tie each statement to a named standard, FER clause, or manufacturer-issued evidence.",
-    short
-      ? `Defect context: “${short}” — confirm as-built against the contract documents, the FER, and ${stdA} before works start; retain dated photographs and mark-ups for the register.`
-      : "No description text on this row — agree an inspection brief, pull the relevant NCC clauses and AS/NZS limits, and capture site observations before closing.",
-    evidenceLine,
-    "Coordinate with the responsible subcontractor: request manufacturer shop drawings / specs, any third-party test reports relied on in submittals, and updated product statements where substitutions are proposed; record agreed dates and obtain sign-off that satisfies programme and quality gates.",
-  ];
-  if (variant > 0) {
-    blocks.push(
-      "Regenerated note: re-scan adjacent services / penetrations for copy-through risk, cross-check the FER table of systems against test report references, and update the BIM / metadata trail if scope or fire-compartment boundaries change.",
-    );
-  }
-  return blocks.join("\n\n");
-}
-
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -358,7 +303,12 @@ export function DefectCategorySidebar({
     const variant = asRegenerate ? (regenerateCountByRow[rowId] ?? 0) + 1 : 0;
     if (asRegenerate) setRegenerateCountByRow((p) => ({ ...p, [rowId]: variant }));
     window.setTimeout(() => {
-      const text = buildMockDefectResponse(row.defectDescription, strat, asRegenerate ? variant : 0);
+      const text = buildMockDefectResponseText({
+        defectCategory: row.defectCategory,
+        defectDescription: row.defectDescription,
+        strategyLabel: strat,
+        variant: asRegenerate ? variant : 0,
+      });
       setGeneratedResponsesByRowId((prev) => ({ ...prev, [rowId]: text }));
       setGeneratingRowId(null);
     }, 450);
@@ -373,7 +323,12 @@ export function DefectCategorySidebar({
       for (const row of aggregate.rows) {
         const strat = strategyForRowGenerate(row, draftByRow, selectionsMap);
         if (!strat) continue;
-        next[row.id] = buildMockDefectResponse(row.defectDescription, strat, 0);
+        next[row.id] = buildMockDefectResponseText({
+          defectCategory: row.defectCategory,
+          defectDescription: row.defectDescription,
+          strategyLabel: strat,
+          variant: 0,
+        });
         count += 1;
       }
       setGeneratedResponsesByRowId((prev) => ({ ...prev, ...next }));
