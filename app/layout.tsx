@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans } from "next/font/google";
-import { AppShell } from "@/components/layout/app-shell";
+import { ConditionalAppShell } from "@/components/layout/conditional-app-shell";
 import "./globals.css";
 
 const dmSans = DM_Sans({
@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={dmSans.variable}>
       <body className="min-h-svh bg-[var(--background)] font-sans text-[var(--foreground)] antialiased">
-        <AppShell>{children}</AppShell>
+        <ConditionalAppShell>{children}</ConditionalAppShell>
       </body>
     </html>
   );

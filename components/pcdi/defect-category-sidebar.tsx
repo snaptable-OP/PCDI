@@ -23,8 +23,10 @@ import {
 import { VISUALISATION_STRATEGY_OPTIONS } from "@/lib/pcdi/live-visualisation-strategies";
 import { dataSuggestedStrategyHighlightStyles } from "@/lib/pcdi/mind-map-palette";
 import type { CategoryAggregate } from "@/lib/pcdi/defect-category-aggregation";
-import { buildMockDefectResponseText } from "@/lib/pcdi/mock-defect-response-text";
+import { generateDefectResponseForLiveRow } from "@/lib/pcdi/generate-defect-response";
 import type { HistoricalDefectTableRow } from "@/lib/pcdi/types";
+import { useKnowledgeFoldersSync } from "@/lib/pcdi/use-knowledge-folders-sync";
+import { useResponseAgentsSync } from "@/lib/pcdi/use-response-agents-sync";
 
 function readSelectionsMap(projectId: string, defectFileId?: string | null): Record<string, string> {
   const fp = getLiveSelectionFingerprint(projectId, defectFileId);
@@ -235,8 +237,11 @@ export function DefectCategorySidebar({
   const [draftByRow, setDraftByRow] = useState<Record<string, string>>({});
   const [selectionsMap, setSelectionsMap] = useState<Record<string, string>>({});
   const [appliedHint, setAppliedHint] = useState<string | null>(null);
+  const [appliedHintIsError, setAppliedHintIsError] = useState(false);
+  const { loading: foldersLoading } = useKnowledgeFoldersSync(projectId);
+  const { loading: agentsLoading, error: agentsSyncError } = useResponseAgentsSync(projectId);
+  const agentsReady = !foldersLoading && !agentsLoading;
   const [excelRowId, setExcelRowId] = useState<string | null>(null);
-  const [regenerateCountByRow, setRegenerateCountByRow] = useState<Record<string, number>>({});
   const [generatingRowId, setGeneratingRowId] = useState<string | null>(null);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
@@ -250,9 +255,9 @@ export function DefectCategorySidebar({
   useEffect(() => {
     if (!open || !aggregate) return;
     setAppliedHint(null);
+    setAppliedHintIsError(false);
     setExcelRowId(null);
     setBulkStrategy("");
-    setRegenerateCountByRow({});
     setGeneratingRowId(null);
     setBulkGenerating(false);
     const map = readSelectionsMap(projectId, defectFileId);
@@ -281,6 +286,7 @@ export function DefectCategorySidebar({
     setDraftByRow(drafts);
     notifyLiveSelectionsUpdated(projectId, defectFileId);
     const label = bulkStrategy.trim().length > 0 ? bulkStrategy : "None Selected";
+    setAppliedHintIsError(false);
     setAppliedHint(`Applied “${label}” to ${ids.length} defect${ids.length === 1 ? "" : "s"}.`);
   };
 
@@ -291,50 +297,88 @@ export function DefectCategorySidebar({
     setSelectionsMap(map);
     notifyLiveSelectionsUpdated(projectId, defectFileId);
     const label = v.trim().length > 0 ? v : "None Selected";
+    setAppliedHintIsError(false);
     setAppliedHint(`Saved “${label}” for ${rowId}.`);
   };
 
-  const runGenerateRow = (rowId: string, asRegenerate: boolean) => {
+  const runGenerateRow = async (rowId: string) => {
     const row = aggregate.rows.find((r) => r.id === rowId);
     if (!row) return;
     const strat = strategyForRowGenerate(row, draftByRow, selectionsMap);
     if (!strat) return;
+    if (!agentsReady) {
+      setAppliedHintIsError(true);
+      setAppliedHint("Loading response agents and knowledge folders… try again in a moment.");
+      return;
+    }
     setGeneratingRowId(rowId);
-    const variant = asRegenerate ? (regenerateCountByRow[rowId] ?? 0) + 1 : 0;
-    if (asRegenerate) setRegenerateCountByRow((p) => ({ ...p, [rowId]: variant }));
-    window.setTimeout(() => {
-      const text = buildMockDefectResponseText({
-        defectCategory: row.defectCategory,
-        defectDescription: row.defectDescription,
-        strategyLabel: strat,
-        variant: asRegenerate ? variant : 0,
-      });
-      setGeneratedResponsesByRowId((prev) => ({ ...prev, [rowId]: text }));
-      setGeneratingRowId(null);
-    }, 450);
+    setAppliedHint(null);
+    setAppliedHintIsError(false);
+    const outcome = await generateDefectResponseForLiveRow({
+      projectId,
+      strategyLabel: strat,
+      defectDescription: row.defectDescription,
+      defectCategory: row.defectCategory,
+    });
+    setGeneratingRowId(null);
+    if (!outcome.ok) {
+      setAppliedHintIsError(true);
+      setAppliedHint(outcome.error);
+      return;
+    }
+    setAppliedHintIsError(false);
+    setAppliedHint(
+      outcome.mode === "mock"
+        ? "Demo response (analysis server disabled in local config)."
+        : "Generated via POST /api/defect-files/generate-response.",
+    );
+    setGeneratedResponsesByRowId((prev) => ({ ...prev, [rowId]: outcome.result.answer }));
   };
 
-  const onGenerateAllResponses = () => {
+  const onGenerateAllResponses = async () => {
     if (rowsWithStrategy === 0) return;
+    if (!agentsReady) {
+      setAppliedHintIsError(true);
+      setAppliedHint("Loading response agents and knowledge folders… try again in a moment.");
+      return;
+    }
     setBulkGenerating(true);
-    window.setTimeout(() => {
-      const next: Record<string, string> = {};
-      let count = 0;
-      for (const row of aggregate.rows) {
-        const strat = strategyForRowGenerate(row, draftByRow, selectionsMap);
-        if (!strat) continue;
-        next[row.id] = buildMockDefectResponseText({
-          defectCategory: row.defectCategory,
-          defectDescription: row.defectDescription,
-          strategyLabel: strat,
-          variant: 0,
-        });
-        count += 1;
+    setAppliedHint(null);
+    setAppliedHintIsError(false);
+    const next: Record<string, string> = {};
+    let count = 0;
+    const errors: string[] = [];
+    for (const row of aggregate.rows) {
+      const strat = strategyForRowGenerate(row, draftByRow, selectionsMap);
+      if (!strat) continue;
+      const outcome = await generateDefectResponseForLiveRow({
+        projectId,
+        strategyLabel: strat,
+        defectDescription: row.defectDescription,
+        defectCategory: row.defectCategory,
+      });
+      if (!outcome.ok) {
+        if (errors.length < 2) errors.push(outcome.error);
+        continue;
       }
-      setGeneratedResponsesByRowId((prev) => ({ ...prev, ...next }));
-      setBulkGenerating(false);
-      setAppliedHint(`Generated mock responses for ${count} defect${count === 1 ? "" : "s"} with a strategy selected.`);
-    }, 500);
+      next[row.id] = outcome.result.answer;
+      count += 1;
+    }
+    setGeneratedResponsesByRowId((prev) => ({ ...prev, ...next }));
+    setBulkGenerating(false);
+    const errBit = errors.length ? ` — ${errors[0]}` : "";
+    const failed = rowsWithStrategy - count;
+    if (count === 0) {
+      setAppliedHintIsError(true);
+      setAppliedHint(errors[0] ?? "Could not generate responses.");
+      return;
+    }
+    setAppliedHintIsError(failed > 0);
+    setAppliedHint(
+      failed > 0
+        ? `Generated ${count} via POST /api/defect-files/generate-response; ${failed} failed.${errBit}`
+        : `Generated ${count} response${count === 1 ? "" : "s"} via POST /api/defect-files/generate-response.`,
+    );
   };
 
   const onSaveAll = async () => {
@@ -448,8 +492,8 @@ export function DefectCategorySidebar({
             </button>
             <button
               type="button"
-              disabled={rowsWithStrategy === 0 || bulkGenerating}
-              onClick={onGenerateAllResponses}
+              disabled={rowsWithStrategy === 0 || bulkGenerating || !agentsReady}
+              onClick={() => void onGenerateAllResponses()}
               className="shrink-0 rounded-lg border border-accent/40 bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent/15 disabled:cursor-not-allowed disabled:opacity-50 lg:mb-0.5"
             >
               {bulkGenerating ? "Generating…" : "Generate all responses"}
@@ -464,7 +508,22 @@ export function DefectCategorySidebar({
               {saveBusy ? "Saving…" : "Save"}
             </button>
           </div>
-          {appliedHint ? <p className="text-xs text-accent">{appliedHint}</p> : null}
+          {agentsSyncError ? (
+            <p className="text-xs text-red-700" role="alert">
+              Could not load response agents: {agentsSyncError}
+            </p>
+          ) : null}
+          {!agentsReady && !agentsSyncError ? (
+            <p className="text-xs text-foreground-muted">Loading response agents for generate…</p>
+          ) : null}
+          {appliedHint ? (
+            <p
+              className={`text-xs ${appliedHintIsError ? "text-red-700" : "text-accent"}`}
+              role={appliedHintIsError ? "alert" : "status"}
+            >
+              {appliedHint}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
@@ -549,8 +608,8 @@ export function DefectCategorySidebar({
                           />
                           <button
                             type="button"
-                            disabled={!hasStrategy || busy}
-                            onClick={() => runGenerateRow(row.id, true)}
+                            disabled={!hasStrategy || busy || !agentsReady}
+                            onClick={() => void runGenerateRow(row.id)}
                             className="mt-2 w-full shrink-0 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {busy ? "Regenerating…" : "Re-generate response"}
@@ -566,8 +625,8 @@ export function DefectCategorySidebar({
                           ) : null}
                           <button
                             type="button"
-                            disabled={!hasStrategy || busy}
-                            onClick={() => runGenerateRow(row.id, false)}
+                            disabled={!hasStrategy || busy || !agentsReady}
+                            onClick={() => void runGenerateRow(row.id)}
                             className="w-full rounded-lg bg-accent px-3 py-2.5 text-xs font-semibold text-accent-foreground transition hover:bg-accent-hover active:bg-accent-active disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {busy ? "Generating…" : "Generate response"}

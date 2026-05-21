@@ -16,7 +16,30 @@ export function billieAuthHeaders(jsonBody = false): Record<string, string> {
   return headers;
 }
 
+export function isBillieEndpointUnavailable(data: unknown, status: number): boolean {
+  if (status !== 403 && status !== 404 && status !== 405) return false;
+  const blob =
+    typeof data === "object" && data !== null
+      ? JSON.stringify(data).toLowerCase()
+      : String(data ?? "").toLowerCase();
+  return blob.includes("not available") || blob.includes("endpoint is not available");
+}
+
 export function upstreamErrorMessage(data: unknown, fallbackStatus: number): string {
+  if (isBillieEndpointUnavailable(data, fallbackStatus)) {
+    return (
+      "Generate response is not available on the analysis server yet. " +
+      "Ask your backend team to enable POST /api/defect-files/generate-response on the environment this app uses."
+    );
+  }
+  if (
+    typeof data === "object" &&
+    data !== null &&
+    "error" in data &&
+    typeof (data as { error: unknown }).error === "string"
+  ) {
+    return (data as { error: string }).error;
+  }
   return typeof data === "object" &&
     data !== null &&
     "errorMessage" in data &&

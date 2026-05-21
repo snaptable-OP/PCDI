@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
+import { ANALYSIS_MAX_WAIT_MS } from "@/lib/pcdi/analysis-timeouts";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+/** Large workbooks: analysis server downloads from S3 and parses rows before returning headers. */
+export const maxDuration = Math.ceil(ANALYSIS_MAX_WAIT_MS / 1000);
 
 const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const SAVE_PATH = "/api/defect-files/saveExcelContent";
@@ -59,7 +62,7 @@ export async function POST(request: NextRequest) {
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await billieLongRunningFetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify({

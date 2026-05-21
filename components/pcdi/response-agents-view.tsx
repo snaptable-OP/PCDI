@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, FlaskConical, Loader2, Play, RefreshCw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useKnowledgeFoldersStore } from "@/lib/pcdi/knowledge-folders-store";
 import { getDefaultPromptForResponseStrategy } from "@/lib/pcdi/response-strategy-default-prompts";
@@ -10,6 +10,7 @@ import {
   deleteResponseAgentOnApi,
   updateResponseAgentOnApi,
 } from "@/lib/pcdi/sync-response-agents-from-api";
+import { generateDefectResponseForAgentTest } from "@/lib/pcdi/generate-defect-response";
 import { useKnowledgeFoldersSync } from "@/lib/pcdi/use-knowledge-folders-sync";
 import { useResponseAgentsSync } from "@/lib/pcdi/use-response-agents-sync";
 import { VISUALISATION_STRATEGY_OPTIONS } from "@/lib/pcdi/live-visualisation-strategies";
@@ -107,10 +108,22 @@ export function ResponseAgentsView() {
   const { loading: agentsLoading, error: syncError, refresh } = useResponseAgentsSync(projectId);
 
   const foldersAll = useKnowledgeFoldersStore((s) => s.folders);
+  const documentsAll = useKnowledgeFoldersStore((s) => s.documents);
   const folders = useMemo(
     () => foldersAll.filter((f) => projectId && f.projectId === projectId),
     [foldersAll, projectId],
   );
+  const indexedDocCountByFolderId = useMemo(() => {
+    const counts = new Map<string, number>();
+    if (!projectId) return counts;
+    for (const doc of documentsAll) {
+      if (doc.source !== "pdf" || doc.status !== "active") continue;
+      const folder = foldersAll.find((f) => f.id === doc.folderId);
+      if (!folder || folder.projectId !== projectId) continue;
+      counts.set(doc.folderId, (counts.get(doc.folderId) ?? 0) + 1);
+    }
+    return counts;
+  }, [documentsAll, foldersAll, projectId]);
   const agentsAll = useResponseAgentsStore((s) => s.agents);
   const agents = useMemo(
     () => agentsAll.filter((a) => projectId && a.projectId === projectId),
@@ -308,6 +321,11 @@ export function ResponseAgentsView() {
                       agent={agent}
                       folderLabel={folderLabel(agent.knowledgeFolderId)}
                       folderOptions={folderOptions}
+                      knowledgeId={
+                        folders.find((f) => f.id === agent.knowledgeFolderId)?.knowledgeId ??
+                        agent.knowledgeFolderId
+                      }
+                      indexedDocCount={indexedDocCountByFolderId.get(agent.knowledgeFolderId) ?? 0}
                       onError={setActionError}
                     />
                   ))}
@@ -324,11 +342,15 @@ function AgentCard({
   agent,
   folderLabel,
   folderOptions,
+  knowledgeId,
+  indexedDocCount,
   onError,
 }: {
   agent: ResponseStrategyAgent;
   folderLabel: string;
   folderOptions: { id: string; label: string }[];
+  knowledgeId: string;
+  indexedDocCount: number;
   onError: (msg: string | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -375,7 +397,7 @@ function AgentCard({
   const busy = saving || deleting;
 
   return (
-    <li className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+    <li className="min-w-0 rounded-xl border border-border bg-surface p-4 shadow-sm">
       {!editing ? (
         <>
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -408,6 +430,12 @@ function AgentCard({
           <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-border-subtle bg-surface-muted/50 p-3 text-xs leading-relaxed text-foreground">
             {agent.prompt}
           </pre>
+          <AgentTestPanel
+            agent={agent}
+            folderLabel={folderLabel}
+            knowledgeId={knowledgeId}
+            indexedDocCount={indexedDocCount}
+          />
         </>
       ) : (
         <div className="space-y-3">
@@ -475,5 +503,194 @@ function AgentCard({
         </div>
       )}
     </li>
+  );
+}
+
+function AgentTestPanel({
+  agent,
+  folderLabel,
+  knowledgeId,
+  indexedDocCount,
+}: {
+  agent: ResponseStrategyAgent;
+  folderLabel: string;
+  knowledgeId: string;
+  indexedDocCount: number;
+}) {
+  const folderId = agent.knowledgeFolderId;
+  const documentsAll = useKnowledgeFoldersStore((s) => s.documents);
+  const [open, setOpen] = useState(false);
+  const [claim, setClaim] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [references, setReferences] = useState<
+    { fileName: string; pageNo?: number; excerpt: string }[]
+  >([]);
+  const [modeLabel, setModeLabel] = useState<string | null>(null);
+
+  const indexingDocs = useMemo(
+    () =>
+      documentsAll.filter(
+        (d) =>
+          d.folderId === folderId &&
+          (d.status === "uploading" || d.status === "parsing"),
+      ).length,
+    [documentsAll, folderId],
+  );
+  const referenceFileIds = useMemo(
+    () =>
+      documentsAll
+        .filter((d) => d.folderId === folderId && d.source === "pdf" && d.status === "active")
+        .map((d) => d.id),
+    [documentsAll, folderId],
+  );
+  const activeDocs = indexedDocCount;
+
+  const onGenerate = async () => {
+    setGenerating(true);
+    setTestError(null);
+    setAnswer(null);
+    setReferences([]);
+    setModeLabel(null);
+
+    const outcome = await generateDefectResponseForAgentTest({
+      defectClaim: claim,
+      knowledgeId,
+      strategy: agent.name,
+      prompt: agent.prompt,
+    });
+
+    setGenerating(false);
+    if (!outcome.ok) {
+      setTestError(outcome.error);
+      return;
+    }
+    setAnswer(outcome.result.answer);
+    setReferences(outcome.result.references);
+    setModeLabel(outcome.mode === "mock" ? "Demo mode" : "generate-response");
+  };
+
+  const reset = () => {
+    setClaim("");
+    setAnswer(null);
+    setReferences([]);
+    setTestError(null);
+    setModeLabel(null);
+  };
+
+  return (
+    <div className="mt-4 min-w-0 border-t border-[var(--border-subtle)] pt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-lg px-1 py-1.5 text-left text-sm font-semibold text-foreground transition hover:bg-surface-muted/60"
+        aria-expanded={open}
+      >
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <FlaskConical className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+          Test this agent
+        </span>
+        {open ? (
+          <ChevronUp className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden />
+        )}
+      </button>
+
+      {open ? (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs text-foreground-muted">
+            Paste a defect claim. The draft uses this agent&apos;s saved prompt and retrieves context from{" "}
+            <span className="font-medium text-foreground">{folderLabel}</span>
+            {activeDocs > 0
+              ? ` (${activeDocs} indexed PDF${activeDocs === 1 ? "" : "s"}).`
+              : indexingDocs > 0
+                ? " (reference files still indexing — results may be thin)."
+                : " (upload PDFs under Knowledge folders for grounded citations)."}
+          </p>
+          <label className="block">
+            <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-foreground-muted">
+              Defect claim
+            </span>
+            <textarea
+              value={claim}
+              onChange={(e) => setClaim(e.target.value)}
+              placeholder="Paste the notifier’s defect description, location, and any cited standards…"
+              rows={4}
+              disabled={generating}
+              className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 disabled:opacity-60"
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void onGenerate()}
+              disabled={generating || !claim.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {generating ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Play className="h-3.5 w-3.5" aria-hidden />
+              )}
+              {generating ? "Generating…" : "Generate response"}
+            </button>
+            {(answer || testError) && !generating ? (
+              <button
+                type="button"
+                onClick={reset}
+                className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-surface-muted"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {testError ? (
+            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-800 dark:text-red-200">
+              {testError}
+            </p>
+          ) : null}
+          {answer ? (
+            <div className="space-y-3">
+              <div className="rounded-lg border border-border bg-surface-muted/40 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                    Generated response
+                  </h4>
+                  {modeLabel ? (
+                    <span className="rounded-full bg-surface px-2 py-0.5 text-[10px] font-medium text-foreground-muted">
+                      {modeLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{answer}</p>
+              </div>
+              {references.length > 0 ? (
+                <div>
+                  <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted">
+                    Retrieved references
+                  </h4>
+                  <ul className="space-y-2">
+                    {references.map((ref, i) => (
+                      <li
+                        key={`${ref.fileName}-${i}`}
+                        className="rounded-lg border border-border bg-background p-3 text-xs"
+                      >
+                        <p className="font-semibold text-foreground">
+                          {ref.fileName}
+                          {typeof ref.pageNo === "number" ? ` · p.${ref.pageNo}` : ""}
+                        </p>
+                        <p className="mt-1 leading-relaxed text-foreground-muted">{ref.excerpt}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

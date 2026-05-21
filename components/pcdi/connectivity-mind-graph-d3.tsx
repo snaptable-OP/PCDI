@@ -29,6 +29,8 @@ import {
   mindMapLabelFillForBackground,
 } from "@/lib/pcdi/mind-map-palette";
 import { DefectCategorySidebar } from "@/components/pcdi/defect-category-sidebar";
+import { useKnowledgeFoldersSync } from "@/lib/pcdi/use-knowledge-folders-sync";
+import { useResponseAgentsSync } from "@/lib/pcdi/use-response-agents-sync";
 
 type CategoryMindNode = d3.SimulationNodeDatum &
   CategoryAggregate & {
@@ -95,6 +97,9 @@ export function ConnectivityMindGraphD3({
   const [generatedResponsesByRowId, setGeneratedResponsesByRowId] = useState<Record<string, string>>({});
   const [exportBusy, setExportBusy] = useState(false);
   const [exportHint, setExportHint] = useState<string | null>(null);
+
+  useKnowledgeFoldersSync(projectId);
+  useResponseAgentsSync(projectId);
 
   pickRef.current = (a) => {
     setSelectedAggregate(a);

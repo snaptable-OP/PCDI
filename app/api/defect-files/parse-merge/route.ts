@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ANALYSIS_MAX_WAIT_MS } from "@/lib/pcdi/analysis-timeouts";
 import { parseBillieMergeXlsxBuffer } from "@/lib/pcdi/parse-billie-merge-xlsx";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = Math.ceil(ANALYSIS_MAX_WAIT_MS / 1000);
 
 type Body = {
   projectId?: string;
@@ -39,7 +40,10 @@ export async function POST(request: NextRequest) {
 
   let res: Response;
   try {
-    res = await fetch(mergeFileUrl, { cache: "no-store" });
+    res = await fetch(mergeFileUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(ANALYSIS_MAX_WAIT_MS),
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Fetch failed";
     return NextResponse.json({ error: `Could not download merge file: ${msg}` }, { status: 502 });

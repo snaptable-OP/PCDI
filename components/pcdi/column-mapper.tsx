@@ -7,6 +7,11 @@ import {
   readHistoricalAiColumnMapping,
   writeHistoricalAiColumnMapping,
 } from "@/lib/pcdi/map-session";
+import {
+  ANALYSIS_MAX_WAIT_MS,
+  ANALYSIS_POLL_INTERVAL_MS,
+  analysisPollMaxAttempts,
+} from "@/lib/pcdi/analysis-timeouts";
 import { extractDefectFileStatusFromPollPayload } from "@/lib/pcdi/defect-file-merge-info";
 import {
   rowSignatureFromRows,
@@ -218,8 +223,8 @@ export function ColumnMapper({
                 return;
               }
 
-              const maxAttempts = 200;
-              const delayMs = 3000;
+              const maxAttempts = analysisPollMaxAttempts();
+              const delayMs = ANALYSIS_POLL_INTERVAL_MS;
               let mergeFileUrl: string | null = null;
               let mergeFileName: string | undefined;
 
@@ -258,7 +263,10 @@ export function ColumnMapper({
               }
 
               if (!mergeFileUrl) {
-                setAnalyzeError("Analysis is taking longer than expected. Try again later.");
+                const waitMin = Math.round(ANALYSIS_MAX_WAIT_MS / 60_000);
+                setAnalyzeError(
+                  `Analysis is still running after ${waitMin} minutes. Try again later, or check the analysis server for this defect file.`,
+                );
                 return;
               }
 

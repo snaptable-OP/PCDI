@@ -91,9 +91,9 @@ export function extractReferenceFileOne(
 
 export function isProcessedToDocStatus(isProcessed?: string): KnowledgeDocumentStatus {
   const s = (isProcessed ?? "").toUpperCase();
-  if (s === "SUCCESS") return "active";
-  if (s === "FAIL") return "error";
-  if (s === "PROCESSING") return "parsing";
+  if (s === "SUCCESS" || s === "READY" || s === "COMPLETE" || s === "DONE") return "active";
+  if (s === "FAIL" || s === "FAILED" || s === "ERROR") return "error";
+  if (s === "PROCESSING" || s === "PENDING") return "parsing";
   return "parsing";
 }
 

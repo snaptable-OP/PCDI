@@ -1,8 +1,18 @@
+import {
+  ANALYSIS_MAX_WAIT_MS,
+  ANALYSIS_POLL_INTERVAL_MS,
+  analysisPollMaxAttempts,
+} from "@/lib/pcdi/analysis-timeouts";
 import type { KnowledgeDocument } from "@/lib/pcdi/knowledge-folders-store";
 import { useKnowledgeFoldersStore } from "@/lib/pcdi/knowledge-folders-store";
 
-const POLL_INTERVAL_MS = 2_000;
-const POLL_MAX_ATTEMPTS = 90;
+const INDEX_POLL_INTERVAL_MS = ANALYSIS_POLL_INTERVAL_MS;
+const INDEX_POLL_MAX_ATTEMPTS = analysisPollMaxAttempts(ANALYSIS_MAX_WAIT_MS, INDEX_POLL_INTERVAL_MS);
+
+function isMemoryIndexingReady(status: string): boolean {
+  const s = status.trim().toLowerCase();
+  return s === "ready" || s === "success" || s === "indexed" || s === "complete";
+}
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -43,6 +53,7 @@ export async function syncReferenceFilesForFolder(
     }
     const list = Array.isArray(body.documents) ? body.documents : [];
     useKnowledgeFoldersStore.getState().replaceDocumentsForFolder(fid, list);
+    await reconcileReferenceFileIndexingStatuses(fid, signal);
     return { ok: true };
   } catch (e) {
     if (e instanceof DOMException && e.name === "AbortError") {
@@ -69,30 +80,79 @@ export async function syncReferenceFilesForProject(
   return failed ?? { ok: true };
 }
 
+async function checkReferenceFileMemoryReady(
+  referenceFileId: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean; ready: boolean; error?: string }> {
+  const id = referenceFileId.trim();
+  const res = await fetch(`/api/defect-reference-files/${encodeURIComponent(id)}/check-memory`, {
+    cache: "no-store",
+    signal,
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    memory?: { status?: string };
+  };
+  if (!res.ok) {
+    return { ok: false, ready: false, error: body.error ?? "Indexing status check failed." };
+  }
+  const status = body.memory?.status ?? "";
+  return { ok: true, ready: isMemoryIndexingReady(status) };
+}
+
 async function pollReferenceFileIndexing(
   referenceFileId: string,
   signal?: AbortSignal,
 ): Promise<{ ok: boolean; ready: boolean; error?: string }> {
   const id = referenceFileId.trim();
-  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
-    await sleep(POLL_INTERVAL_MS, signal);
-    const res = await fetch(`/api/defect-reference-files/${encodeURIComponent(id)}/check-memory`, {
-      cache: "no-store",
-      signal,
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      error?: string;
-      memory?: { status?: string };
-    };
-    if (!res.ok) {
-      return { ok: false, ready: false, error: body.error ?? "Indexing status check failed." };
-    }
-    const status = (body.memory?.status ?? "").toLowerCase();
-    if (status === "ready") {
-      return { ok: true, ready: true };
+  for (let attempt = 0; attempt < INDEX_POLL_MAX_ATTEMPTS; attempt++) {
+    const check = await checkReferenceFileMemoryReady(id, signal);
+    if (!check.ok) return check;
+    if (check.ready) return { ok: true, ready: true };
+    await sleep(INDEX_POLL_INTERVAL_MS, signal);
+  }
+  return {
+    ok: true,
+    ready: false,
+    error: "Indexing is still in progress. Use Refresh on this page to update status.",
+  };
+}
+
+/** Updates PDF rows stuck on Indexing when check-memory is already ready (e.g. after refresh). */
+export async function reconcileReferenceFileIndexingStatuses(
+  folderId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const fid = folderId.trim();
+  if (!fid) return;
+
+  const pending = useKnowledgeFoldersStore
+    .getState()
+    .documents.filter(
+      (d) =>
+        d.folderId === fid &&
+        d.source === "pdf" &&
+        (d.status === "parsing" || d.status === "uploading"),
+    );
+
+  for (const doc of pending) {
+    const refId = (doc.referenceFileId ?? doc.id).trim();
+    if (!refId || refId.startsWith("pending_")) continue;
+    const check = await checkReferenceFileMemoryReady(refId, signal);
+    if (check.ok && check.ready) {
+      useKnowledgeFoldersStore.getState().upsertDocument({ ...doc, status: "active" });
     }
   }
-  return { ok: true, ready: false, error: "Indexing is still in progress. Try refreshing later." };
+}
+
+function markReferenceFileActiveInStore(referenceFileId: string, folderId: string): KnowledgeDocument | null {
+  const id = referenceFileId.trim();
+  const store = useKnowledgeFoldersStore.getState();
+  const doc = store.documents.find((d) => d.id === id || d.referenceFileId === id);
+  if (!doc) return null;
+  const active: KnowledgeDocument = { ...doc, folderId, status: "active" };
+  store.upsertDocument(active);
+  return active;
 }
 
 /**
@@ -172,18 +232,23 @@ export async function uploadReferenceFileToFolder(
     const poll = await pollReferenceFileIndexing(saved.id, signal);
     await syncReferenceFilesForFolder(folderId, signal);
 
-    const latest =
-      useKnowledgeFoldersStore.getState().documents.find((d) => d.id === saved.id) ?? saved;
-
-    if (!poll.ready) {
-      return {
-        ok: true,
-        document: { ...latest, status: "parsing" },
-        error: poll.error,
-      };
+    if (poll.ready) {
+      const active =
+        markReferenceFileActiveInStore(saved.id, folderId) ??
+        ({ ...saved, status: "active" as const });
+      return { ok: true, document: active };
     }
 
-    return { ok: true, document: { ...latest, status: "active" } };
+    const latest =
+      useKnowledgeFoldersStore.getState().documents.find((d) => d.id === saved.id) ?? {
+        ...saved,
+        status: "parsing" as const,
+      };
+    return {
+      ok: true,
+      document: latest,
+      error: poll.error,
+    };
   } catch (e) {
     useKnowledgeFoldersStore.getState().removeDocumentLocal(placeholderId);
     if (e instanceof DOMException && e.name === "AbortError") {

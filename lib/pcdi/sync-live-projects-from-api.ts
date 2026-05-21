@@ -46,7 +46,7 @@ export async function syncLiveProjectsFromApi(signal?: AbortSignal): Promise<{
     return {
       ok: false,
       error: isAbortError(e)
-        ? "Timed out waiting for the analysis server. Check BILLIE_API_BASE / network, or try again."
+        ? "Timed out waiting for the analysis server. Check network or try again."
         : "Could not load projects from the analysis server.",
     };
   } finally {

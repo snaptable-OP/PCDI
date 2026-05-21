@@ -3,7 +3,8 @@ import { getPresignedGetObjectUrl } from "@/lib/s3/presign-get";
 import { putXlsxToS3 } from "@/lib/s3/put-xlsx";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+/** Large .xlsx uploads to S3 can take over a minute on slow links. */
+export const maxDuration = 180;
 
 const MAX_BYTES = 30 * 1024 * 1024;
 const HEADER_ROW_MIN = 1;

@@ -332,7 +332,8 @@ export function HistoricalUploadPanel({
 
       {busy ? (
         <p className="mt-4 text-sm text-[var(--muted-foreground)]">
-          Reading workbook, uploading to S3, and notifying the analysis server…
+          Reading workbook, uploading to storage, then registering with the analysis server. Large files (e.g.
+          20MB+) can take up to 15 minutes — keep this tab open.
         </p>
       ) : null}
       {error ? (
