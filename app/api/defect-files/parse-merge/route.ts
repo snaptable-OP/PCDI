@@ -3,8 +3,8 @@ import { ANALYSIS_MAX_WAIT_MS } from "@/lib/pcdi/analysis-timeouts";
 import { parseBillieMergeXlsxBuffer } from "@/lib/pcdi/parse-billie-merge-xlsx";
 
 export const runtime = "nodejs";
-/** 15 min — keep in sync with ANALYSIS_MAX_WAIT_MS in lib/pcdi/analysis-timeouts.ts */
-export const maxDuration = 900;
+/** Vercel Pro max is 800s. */
+export const maxDuration = 800;
 
 type Body = {
   projectId?: string;

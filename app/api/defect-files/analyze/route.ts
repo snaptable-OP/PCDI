@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
 export const runtime = "nodejs";
-/** 15 min — keep in sync with ANALYSIS_MAX_WAIT_MS in lib/pcdi/analysis-timeouts.ts */
-export const maxDuration = 900;
+/** Vercel Pro max is 800s; client poll uses ANALYSIS_MAX_WAIT_MS (15 min). */
+export const maxDuration = 800;
 
 const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const ANALYZE_PATH = "/api/defect-files/analyze";

@@ -3,8 +3,8 @@ import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
 
 export const runtime = "nodejs";
-/** Large workbooks: analysis server downloads from S3 and parses rows before returning headers. 15 min. */
-export const maxDuration = 900;
+/** Large workbooks; Vercel Pro max is 800s. */
+export const maxDuration = 800;
 
 const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const SAVE_PATH = "/api/defect-files/saveExcelContent";
