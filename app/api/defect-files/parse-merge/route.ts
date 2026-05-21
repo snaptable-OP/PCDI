@@ -3,7 +3,8 @@ import { ANALYSIS_MAX_WAIT_MS } from "@/lib/pcdi/analysis-timeouts";
 import { parseBillieMergeXlsxBuffer } from "@/lib/pcdi/parse-billie-merge-xlsx";
 
 export const runtime = "nodejs";
-export const maxDuration = Math.ceil(ANALYSIS_MAX_WAIT_MS / 1000);
+/** 15 min — keep in sync with ANALYSIS_MAX_WAIT_MS in lib/pcdi/analysis-timeouts.ts */
+export const maxDuration = 900;
 
 type Body = {
   projectId?: string;

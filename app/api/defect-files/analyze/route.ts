@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
-import { ANALYSIS_MAX_WAIT_MS } from "@/lib/pcdi/analysis-timeouts";
-
 export const runtime = "nodejs";
-export const maxDuration = Math.ceil(ANALYSIS_MAX_WAIT_MS / 1000);
+/** 15 min — keep in sync with ANALYSIS_MAX_WAIT_MS in lib/pcdi/analysis-timeouts.ts */
+export const maxDuration = 900;
 
 const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const ANALYZE_PATH = "/api/defect-files/analyze";
