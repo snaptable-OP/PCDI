@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const UPSTREAM_PATH = "/api/defect-files/content/user-chosen-response-strategy";
 
 type Body = {
@@ -42,7 +41,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "userChosenResponseStrategy is required" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}${UPSTREAM_PATH}`;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };

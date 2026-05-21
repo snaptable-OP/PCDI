@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 
 export const runtime = "nodejs";
 /** Large workbooks; Vercel Pro max is 800s. */
 export const maxDuration = 800;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const SAVE_PATH = "/api/defect-files/saveExcelContent";
 
 type Body = {
@@ -50,7 +49,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "headerNum must be a positive integer" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}${SAVE_PATH}`;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };

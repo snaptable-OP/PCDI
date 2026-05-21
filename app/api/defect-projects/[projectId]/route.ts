@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 import {
   extractSingleDefectProjectFromDetailPayload,
   mapDefectProjectRowToHistorical,
@@ -9,8 +10,6 @@ import type { HistoricalProject } from "@/lib/pcdi/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 
 type Params = { params: Promise<{ projectId: string }> };
 
@@ -80,7 +79,7 @@ export async function GET(_request: NextRequest, ctx: Params) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}/api/defect-projects/${encodeURIComponent(id)}`;
 
   const headers: Record<string, string> = {};
@@ -134,7 +133,7 @@ export async function DELETE(_request: NextRequest, ctx: Params) {
     return NextResponse.json({ error: "projectId is required" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}/api/defect-projects/${encodeURIComponent(id)}`;
 
   const headers: Record<string, string> = {};

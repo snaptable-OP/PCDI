@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 
 type Params = { params: Promise<{ defectFileId: string }> };
 
@@ -25,7 +24,7 @@ export async function GET(request: NextRequest, ctx: Params) {
   const page = request.nextUrl.searchParams.get("page") ?? "0";
   const size = request.nextUrl.searchParams.get("size") ?? "500";
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}/api/defect-files/${encodeURIComponent(id)}/contents?page=${encodeURIComponent(page)}&size=${encodeURIComponent(size)}`;
 
   const headers: Record<string, string> = {};

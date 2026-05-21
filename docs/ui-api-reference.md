@@ -41,7 +41,7 @@ Envelope shapes vary (`result`, arrays, etc.). Use extractors in `lib/pcdi/extra
 
 | Variable | Effect |
 |----------|--------|
-| `BILLIE_API_BASE` | Billie origin (trailing slash stripped). Default in code: `https://billie-alb-dev-s3.wonderbricks.com:6070`. |
+| `BILLIE_API_BASE` | Billie origin (trailing slash stripped). Default in code: `https://t6hoa3aw78.execute-api.ap-southeast-2.amazonaws.com`. |
 | `BILLIE_API_KEY` | If set, sent as `Authorization: Bearer …` on Billie proxy requests. |
 | `BILLIE_SKIP_BACKEND_HANDOFF` | When `1`, Billie **GET** proxies return **503** `{ error: "Backend handoff disabled." }`. Also affects `POST /api/defect-files/analyze` (503). **`POST /api/save-excel-content`** returns `{ ok: true, skipped: true }` without calling Billie. |
 | `BILLIE_SKIP_DEFECT_PROJECT_CREATE` | When `1`, **`POST /api/defect-projects`** returns **200** `{ ok: true, id: <UUID>, skipped: true }` without calling Billie. |

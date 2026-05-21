@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 import { defectRowsAndResponsesFromBillieDetail } from "@/lib/pcdi/live-overview-rollup";
 import { extractDefectFileListFromProjectQueryBody } from "@/lib/pcdi/extract-backend-columns";
 import { mapDefectProjectsResponseToHistorical } from "@/lib/pcdi/defect-project-api-map";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 
 /** Cap Billie GET-by-id calls so the home page stays responsive with large tenants. */
 const MAX_DEFECT_FILE_DETAIL_FETCHES = 160;
@@ -82,7 +81,7 @@ export async function GET() {
     });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const headers: Record<string, string> = {};
   const token = process.env.BILLIE_API_KEY;
   if (token) {

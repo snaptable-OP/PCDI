@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
+
 export const runtime = "nodejs";
 /** Vercel Pro max is 800s; client poll uses ANALYSIS_MAX_WAIT_MS (15 min). */
 export const maxDuration = 800;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const ANALYZE_PATH = "/api/defect-files/analyze";
 
 type Body = {
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}${ANALYZE_PATH}`;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };

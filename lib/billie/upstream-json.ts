@@ -2,7 +2,8 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
 
-export const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
+export const DEFAULT_BILLIE_BASE =
+  "https://t6hoa3aw78.execute-api.ap-southeast-2.amazonaws.com";
 
 export function getBillieBase(): string {
   return (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");

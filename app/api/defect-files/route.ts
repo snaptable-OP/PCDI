@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 
 /**
  * Proxies GET /api/defect-files?projectId=… to Billie — parsed defect results for a project (mind map / register).
@@ -19,7 +18,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "projectId query parameter is required" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}/api/defect-files?projectId=${encodeURIComponent(projectId)}`;
 
   const headers: Record<string, string> = {};

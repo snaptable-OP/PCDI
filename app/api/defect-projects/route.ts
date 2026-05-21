@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { getBillieBase } from "@/lib/billie/upstream-json";
 import {
   extractDefectProjectId,
   mapDefectProjectsResponseToHistorical,
@@ -9,7 +10,6 @@ import {
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const DEFAULT_BILLIE_BASE = "https://billie-alb-dev-s3.wonderbricks.com:6070";
 const CREATE_PATH = "/api/defect-projects";
 
 function upstreamErrorMessage(data: unknown, fallbackStatus: number): string {
@@ -57,7 +57,7 @@ export async function GET() {
     return NextResponse.json({ error: "Backend handoff disabled." }, { status: 503 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}${CREATE_PATH}`;
 
   const headers: Record<string, string> = {};
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const base = (process.env.BILLIE_API_BASE || DEFAULT_BILLIE_BASE).replace(/\/$/, "");
+  const base = getBillieBase();
   const url = `${base}${CREATE_PATH}`;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
