@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LogoutButton } from "@/components/auth/logout-button";
 import { APP_NAV } from "@/components/layout/nav-config";
 import { ProjectSelector } from "@/components/layout/project-selector";
 
@@ -14,7 +15,7 @@ import { ProjectSelector } from "@/components/layout/project-selector";
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="grid min-h-svh w-full max-w-full grid-cols-1 items-start md:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="sticky top-0 hidden h-svh max-h-screen w-full min-w-0 overflow-y-auto border-r border-[color:var(--sidebar-border)] bg-sidebar md:block">
+      <aside className="sticky top-0 hidden h-svh max-h-screen w-full min-w-0 flex-col overflow-y-auto border-r border-[color:var(--sidebar-border)] bg-sidebar md:flex">
         <div className="border-b border-[color:var(--sidebar-border)] px-4 py-5">
           <Link
             href="/"
@@ -39,6 +40,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
+        <div className="mt-auto border-t border-[color:var(--sidebar-border)] p-3">
+          <LogoutButton variant="sidebar" />
+        </div>
       </aside>
       <div className="flex min-h-svh min-w-0 w-full max-w-full flex-col bg-[color:var(--main-column-bg)]">
         <header
@@ -65,6 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {shortLabel}
               </Link>
             ))}
+            <LogoutButton variant="mobile" />
           </nav>
         </header>
         <main className="min-h-0 w-full min-w-0 max-w-full flex-1 overflow-x-clip overflow-y-visible px-4 py-6 md:px-8">
