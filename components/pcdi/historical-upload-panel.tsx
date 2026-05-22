@@ -13,7 +13,10 @@ import { parseFirstSheetDataRows, parseSheetColumnHeaders } from "@/lib/pcdi/par
 import type { PcdiUploadSessionPayload } from "@/lib/pcdi/types";
 import { clearBillieMergeSession } from "@/lib/pcdi/billie-merge-session";
 import { clearHistoricalAiColumnMappingSession } from "@/lib/pcdi/map-session";
-import { isSaveExcelGatewayTimeout } from "@/lib/pcdi/save-excel-handoff";
+import {
+  isSaveExcelRegistrationDegraded,
+  saveExcelRegistrationHint,
+} from "@/lib/pcdi/save-excel-handoff";
 import { clearUploadPayload, writeUploadPayload } from "@/lib/pcdi/upload-session";
 import { uploadXlsxToS3Direct } from "@/lib/pcdi/xlsx-client-upload";
 
@@ -70,31 +73,51 @@ export function HistoricalUploadPanel({
 
   const registerWithBackend = useCallback(
     async (fileUrl: string, headerNum: number) => {
-      const handoffRes = await fetch("/api/save-excel-content", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, fileUrl, headerNum }),
-      });
-      const body = (await handoffRes.json().catch(() => ({}))) as {
+      const maxAttempts = 3;
+      let lastStatus = 0;
+      let lastBody: {
         error?: string;
         cause?: string;
         hint?: string;
         gatewayTimeout?: boolean;
-        ok?: boolean;
-        data?: unknown;
-        skipped?: boolean;
-      };
-      if (!handoffRes.ok) {
-        return {
-          ok: false as const,
-          status: handoffRes.status,
-          message:
-            [body.error, body.cause, body.hint].filter(Boolean).join("\n\n") ||
-            "Could not register the file with the analysis server.",
-          gatewayTimeout: isSaveExcelGatewayTimeout(handoffRes.status, body),
+      } = {};
+
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (attempt > 0) {
+          await new Promise((r) => window.setTimeout(r, 2000 * attempt));
+        }
+        const handoffRes = await fetch("/api/save-excel-content", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, fileUrl, headerNum }),
+        });
+        const body = (await handoffRes.json().catch(() => ({}))) as {
+          error?: string;
+          cause?: string;
+          hint?: string;
+          gatewayTimeout?: boolean;
+          ok?: boolean;
+          data?: unknown;
+          skipped?: boolean;
         };
+        if (handoffRes.ok) {
+          return { ok: true as const, data: body.data, skipped: body.skipped };
+        }
+        lastStatus = handoffRes.status;
+        lastBody = body;
+        const retryable = handoffRes.status === 503 || handoffRes.status === 502;
+        if (!retryable || attempt === maxAttempts - 1) break;
       }
-      return { ok: true as const, data: body.data, skipped: body.skipped };
+
+      const hint = saveExcelRegistrationHint(lastStatus);
+      return {
+        ok: false as const,
+        status: lastStatus,
+        message:
+          [lastBody.error, lastBody.cause, lastBody.hint, hint].filter(Boolean).join("\n\n") ||
+          "Could not register the file with the analysis server.",
+        degraded: isSaveExcelRegistrationDegraded(lastStatus, lastBody),
+      };
     },
     [projectId],
   );
@@ -145,7 +168,7 @@ export function HistoricalUploadPanel({
         let defectFileId: string | null = null;
 
         if (!handoff.ok) {
-          if (handoff.gatewayTimeout) {
+          if (handoff.degraded) {
             const next: PcdiUploadSessionPayload = {
               projectId,
               fileName: file.name,
@@ -165,7 +188,7 @@ export function HistoricalUploadPanel({
             onPayloadChange?.(next);
             setHeaderRow(rowUsed);
             setRegistrationWarning(
-              `${handoff.message}\n\nColumn headers were read from your file locally. Use “Retry server registration” below before starting analysis.`,
+              `${handoff.message}\n\nColumn headers were read from your file locally (the .xlsx may already be in S3). Use “Retry server registration” below before starting analysis.`,
             );
             return;
           }

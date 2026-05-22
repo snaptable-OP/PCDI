@@ -98,20 +98,29 @@ export async function POST(request: NextRequest) {
           ? (data as { error: string }).error
           : `Analysis server returned ${res.status}`;
     const gatewayTimeout = isUpstreamGatewayTimeout(res.status, rawMsg, text);
-    const msg = gatewayTimeout
-      ? "The analysis API gateway timed out while registering this spreadsheet (common limit ~30 seconds on AWS API Gateway)."
-      : rawMsg;
+    let msg = rawMsg;
+    let hint: string | undefined;
+    if (gatewayTimeout) {
+      msg =
+        "The analysis API gateway timed out while registering this spreadsheet (common limit ~30 seconds on AWS API Gateway).";
+      hint = `${GATEWAY_TIMEOUT_HINT} Your file may already be on S3 — retry registration or use a smaller file.`;
+    } else if (res.status === 503) {
+      msg =
+        "The analysis server returned Service Unavailable (503) while registering this spreadsheet.";
+      hint =
+        "This is a backend/API issue (not Vercel file size). Confirm BILLIE_API_BASE on Vercel points to the correct API Gateway URL, add BILLIE_API_KEY if required, and ask your backend team to check Lambda/API health. Your .xlsx may already be in S3 — retry registration in a minute.";
+    }
+    const clientStatus =
+      gatewayTimeout ? 504 : res.status >= 400 && res.status < 600 ? res.status : 502;
     return NextResponse.json(
       {
         error: msg,
         status: res.status,
         gatewayTimeout,
         detail: data,
-        hint: gatewayTimeout
-          ? `${GATEWAY_TIMEOUT_HINT} Your file may already be on S3 — retry registration or use a smaller file.`
-          : undefined,
+        hint,
       },
-      { status: gatewayTimeout ? 504 : 502 },
+      { status: clientStatus },
     );
   }
 
