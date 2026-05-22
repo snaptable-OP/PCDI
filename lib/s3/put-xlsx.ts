@@ -1,17 +1,7 @@
 import "server-only";
 import { PutObjectCommand } from "@aws-sdk/client-s3";
 import { createS3Client } from "@/lib/s3/s3-client";
-
-const MAX_KEY_FILENAME = 180;
-
-function sanitizeFileNameForKey(name: string): string {
-  const base = name.split(/[/\\]/).pop() ?? "upload";
-  return base
-    .replace(/[^\w.\-()+ ]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, MAX_KEY_FILENAME) || "upload.xlsx";
-}
+import { buildXlsxS3Key } from "@/lib/s3/xlsx-s3-key";
 
 /**
  * Puts an .xlsx buffer into the configured bucket under `uploads/{projectId}/{timestamp}-{fileName}`.
@@ -31,8 +21,7 @@ export async function putXlsxToS3(options: {
     throw new Error("Missing AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY");
   }
 
-  const safe = sanitizeFileNameForKey(options.fileName);
-  const key = `uploads/${options.projectId}/${Date.now()}-${safe}`;
+  const key = buildXlsxS3Key(options.projectId, options.fileName);
 
   const client = createS3Client(region);
   await client.send(

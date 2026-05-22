@@ -15,6 +15,7 @@ import { clearBillieMergeSession } from "@/lib/pcdi/billie-merge-session";
 import { clearHistoricalAiColumnMappingSession } from "@/lib/pcdi/map-session";
 import { isSaveExcelGatewayTimeout } from "@/lib/pcdi/save-excel-handoff";
 import { clearUploadPayload, writeUploadPayload } from "@/lib/pcdi/upload-session";
+import { uploadXlsxToS3Direct } from "@/lib/pcdi/xlsx-client-upload";
 
 type HistoricalUploadPanelProps = {
   projectId: string;
@@ -125,30 +126,19 @@ export function HistoricalUploadPanel({
             ? parseFirstSheetDataRows(buf, rowUsed).slice(0, LIVE_UPLOAD_MAX_DATA_ROWS)
             : undefined;
 
-        const form = new FormData();
-        form.append("file", file);
-        form.append("projectId", projectId);
-        form.append("headerRow", String(rowUsed));
-        const s3Res = await fetch("/api/upload-xlsx", { method: "POST", body: form });
-        if (!s3Res.ok) {
-          const errBody = (await s3Res.json().catch(() => ({}))) as { error?: string };
+        const s3Upload = await uploadXlsxToS3Direct(projectId, file, rowUsed);
+        if (!s3Upload.ok) {
           setPayload(null);
           onPayloadChange?.(null);
           clearBillieMergeSession(projectId);
           clearUploadPayload(projectId);
           setError(
-            errBody.error ?? "Could not store the file in Amazon S3. Check .env.local and your network, then try again.",
+            s3Upload.error ??
+              "Could not store the file in Amazon S3. Check AWS env vars on Vercel and S3 CORS on the defect-analysis bucket.",
           );
           return;
         }
-        const s3 = (await s3Res.json()) as {
-          fileUrl: string;
-          headerRow: number;
-          presignedUrlExpiresInSeconds: number;
-          bucket: string;
-          key: string;
-          region: string;
-        };
+        const s3 = s3Upload.data;
 
         const handoff = await registerWithBackend(s3.fileUrl, s3.headerRow);
         let fromBackend: string[] | null = null;
@@ -409,8 +399,8 @@ export function HistoricalUploadPanel({
 
       {busy ? (
         <p className="mt-4 text-sm text-[var(--muted-foreground)]">
-          Reading workbook, uploading to storage, then registering with the analysis server. Large files (e.g.
-          20MB+) can take up to 15 minutes — keep this tab open.
+          Reading workbook, uploading directly to S3, then registering with the analysis server. Large files
+          (e.g. 20MB+) can take several minutes — keep this tab open.
         </p>
       ) : null}
       {error ? (

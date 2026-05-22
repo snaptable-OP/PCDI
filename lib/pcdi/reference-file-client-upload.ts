@@ -3,6 +3,11 @@ import type { KnowledgeDocument } from "@/lib/pcdi/knowledge-folders-store";
 /** Matches server validation in reference-file-server-upload.ts */
 export const REFERENCE_PDF_MAX_BYTES = 25 * 1024 * 1024;
 
+/** Max size for server proxy PUT through Vercel (body limit ~4.5MB). */
+export const REFERENCE_SERVER_PROXY_MAX_BYTES = 4 * 1024 * 1024;
+
+export const REFERENCE_FILE_CORS_DOC_PATH = "/docs/s3-cors-reference-file-bucket.md";
+
 function inferSourceFileType(fileName: string): string {
   const n = fileName.toLowerCase();
   if (n.endsWith(".pdf")) return "PDF";
@@ -27,27 +32,32 @@ function validateReferencePdf(file: File): string | null {
   return null;
 }
 
-function storagePutErrorMessage(msg: string): string {
-  if (msg === "Failed to fetch" || msg.includes("NetworkError")) {
-    return (
-      "Could not upload directly to storage. The S3 bucket may need CORS rules allowing PUT from this app origin " +
-      "(e.g. https://pcdi-ui.vercel.app and http://127.0.0.1:3333). Ask your backend/AWS team to update the reference-file bucket CORS."
-    );
-  }
-  return msg;
+function isBrowserStorageNetworkError(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return m === "failed to fetch" || m.includes("networkerror") || m.includes("load failed");
 }
 
-/**
- * Browser → S3 via Billie presigned URL (no file bytes through Vercel).
- * 1. GET /api/defect-reference-files/presigned-url
- * 2. PUT file to uploadUrl
- */
-export async function putReferencePdfToPresignedS3(
+export function referenceFileCorsHelpMessage(fileSizeBytes: number): string {
+  const mb = (fileSizeBytes / (1024 * 1024)).toFixed(1);
+  const proxyHint =
+    fileSizeBytes <= REFERENCE_SERVER_PROXY_MAX_BYTES
+      ? " The app will try a small-file server fallback automatically."
+      : ` Your file is ${mb}MB — it must upload directly to S3 once CORS is fixed (over 4MB cannot go through Vercel).`;
+  return (
+    "Could not upload directly to storage (usually S3 CORS)." +
+    proxyHint +
+    " Ask your AWS/backend team to add CORS on the reference-file bucket (billie-defect-reference-file): allow PUT from " +
+    "https://pcdi-ui.vercel.app, your Vercel preview URLs, and http://127.0.0.1:3333. " +
+    `See ${REFERENCE_FILE_CORS_DOC_PATH} in the repo for a sample policy.`
+  );
+}
+
+export async function fetchReferencePresignedUrls(
   file: File,
   signal?: AbortSignal,
 ): Promise<
-  | { ok: true; fileUrl: string; uploadUrl: string }
-  | { ok: false; error: string; step: "validate" | "presign" | "storage" }
+  | { ok: true; uploadUrl: string; fileUrl: string }
+  | { ok: false; error: string; step: "validate" | "presign" }
 > {
   const validation = validateReferencePdf(file);
   if (validation) return { ok: false, error: validation, step: "validate" };
@@ -74,31 +84,136 @@ export async function putReferencePdfToPresignedS3(
   if (!uploadUrl || !fileUrl) {
     return { ok: false, step: "presign", error: "Presigned upload URLs were missing from the server response." };
   }
+  return { ok: true, uploadUrl, fileUrl };
+}
 
-  let putRes: Response;
+async function putFileToPresignedUrlOnce(
+  uploadUrl: string,
+  file: File,
+  headers: HeadersInit | undefined,
+  signal?: AbortSignal,
+): Promise<{ ok: true } | { ok: false; error: string; networkError: boolean }> {
   try {
-    putRes = await fetch(uploadUrl, {
+    const putRes = await fetch(uploadUrl, {
       method: "PUT",
       body: file,
-      headers: { "Content-Type": pdfContentType(file) },
+      headers,
       cache: "no-store",
       signal,
     });
+    if (!putRes.ok) {
+      const text = await putRes.text().catch(() => "");
+      return {
+        ok: false,
+        networkError: false,
+        error: `Storage upload failed (${putRes.status})${text ? `: ${text.slice(0, 200)}` : ""}`,
+      };
+    }
+    return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, step: "storage", error: storagePutErrorMessage(msg) };
+    return {
+      ok: false,
+      networkError: isBrowserStorageNetworkError(msg),
+      error: msg,
+    };
+  }
+}
+
+/** Browser PUT to presigned URL — tries without Content-Type first (SigV4 / CORS). */
+export async function putReferencePdfToPresignedS3(
+  uploadUrl: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<{ ok: true } | { ok: false; error: string; corsLikely: boolean }> {
+  const bare = await putFileToPresignedUrlOnce(uploadUrl, file, undefined, signal);
+  if (bare.ok) return { ok: true };
+
+  if (!bare.networkError) {
+    const withType = await putFileToPresignedUrlOnce(
+      uploadUrl,
+      file,
+      { "Content-Type": pdfContentType(file) },
+      signal,
+    );
+    if (withType.ok) return { ok: true };
+    return { ok: false, error: withType.error, corsLikely: false };
   }
 
-  if (!putRes.ok) {
-    const text = await putRes.text().catch(() => "");
+  return { ok: false, error: bare.error, corsLikely: true };
+}
+
+/** Server PUT via Next.js (no browser CORS; Vercel ~4MB limit). */
+export async function putReferencePdfViaServerProxy(
+  uploadUrl: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (file.size > REFERENCE_SERVER_PROXY_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `File too large for server upload proxy (max ${REFERENCE_SERVER_PROXY_MAX_BYTES / (1024 * 1024)}MB).`,
+    };
+  }
+  const form = new FormData();
+  form.append("file", file);
+  form.append("uploadUrl", uploadUrl);
+  const res = await fetch("/api/defect-reference-files/s3-put", {
+    method: "POST",
+    body: form,
+    signal,
+  });
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    return { ok: false, error: body.error ?? `Server storage proxy failed (${res.status}).` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Presign → browser PUT to S3 → optional server PUT fallback (≤4MB).
+ */
+export async function uploadReferencePdfToStorage(
+  file: File,
+  signal?: AbortSignal,
+): Promise<
+  | { ok: true; fileUrl: string }
+  | { ok: false; error: string; step: "validate" | "presign" | "storage" }
+> {
+  const presigned = await fetchReferencePresignedUrls(file, signal);
+  if (!presigned.ok) {
+    return { ok: false, error: presigned.error, step: presigned.step };
+  }
+
+  const browserPut = await putReferencePdfToPresignedS3(
+    presigned.uploadUrl,
+    file,
+    signal,
+  );
+  if (browserPut.ok) {
+    return { ok: true, fileUrl: presigned.fileUrl };
+  }
+
+  if (browserPut.corsLikely || isBrowserStorageNetworkError(browserPut.error)) {
+    if (file.size <= REFERENCE_SERVER_PROXY_MAX_BYTES) {
+      const proxy = await putReferencePdfViaServerProxy(presigned.uploadUrl, file, signal);
+      if (proxy.ok) {
+        return { ok: true, fileUrl: presigned.fileUrl };
+      }
+      return {
+        ok: false,
+        step: "storage",
+        error: `${proxy.error} ${referenceFileCorsHelpMessage(file.size)}`,
+      };
+    }
     return {
       ok: false,
       step: "storage",
-      error: `Storage upload failed (${putRes.status})${text ? `: ${text.slice(0, 200)}` : ""}`,
+      error: referenceFileCorsHelpMessage(file.size),
     };
   }
 
-  return { ok: true, fileUrl, uploadUrl };
+  return { ok: false, step: "storage", error: browserPut.error };
 }
 
 /** Register an already-uploaded S3 object with the analysis server (small JSON only). */

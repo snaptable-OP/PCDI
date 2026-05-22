@@ -6,8 +6,8 @@ import {
 import type { KnowledgeDocument } from "@/lib/pcdi/knowledge-folders-store";
 import { useKnowledgeFoldersStore } from "@/lib/pcdi/knowledge-folders-store";
 import {
-  putReferencePdfToPresignedS3,
   saveReferenceFileToFolder,
+  uploadReferencePdfToStorage,
 } from "@/lib/pcdi/reference-file-client-upload";
 
 const INDEX_POLL_INTERVAL_MS = ANALYSIS_POLL_INTERVAL_MS;
@@ -191,7 +191,7 @@ export async function uploadReferenceFileToFolder(
   };
 
   try {
-    const stored = await putReferencePdfToPresignedS3(file, signal);
+    const stored = await uploadReferencePdfToStorage(file, signal);
     if (!stored.ok) {
       useKnowledgeFoldersStore.getState().removeDocumentLocal(placeholderId);
       const step = stored.step ? ` (${stored.step})` : "";

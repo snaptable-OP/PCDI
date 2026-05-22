@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatAwsS3Error } from "@/lib/s3/format-aws-s3-error";
 import { getPresignedGetObjectUrl } from "@/lib/s3/presign-get";
 import { putXlsxToS3 } from "@/lib/s3/put-xlsx";
 
@@ -22,17 +23,31 @@ function isXlsx(name: string, type: string): boolean {
 }
 
 /**
- * Server-only upload of the raw .xlsx to S3. Called from the client after local validation
- * (same file the user is parsing in the browser).
+ * Legacy: full .xlsx in request body (hits Vercel FUNCTION_PAYLOAD_TOO_LARGE above ~4.5MB).
+ * UI uses presign → browser PUT → /complete instead (see xlsx-client-upload.ts).
  */
 export async function POST(request: NextRequest) {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > 4 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        error:
+          "File is too large to upload through Vercel. The app uploads directly to S3 — refresh and try again, or enable S3 CORS on AWS_S3_BUCKET.",
+      },
+      { status: 413 },
+    );
+  }
+
   let form: FormData;
   try {
     form = await request.formData();
   } catch {
     return NextResponse.json(
-      { error: "Request body is too large or invalid. Try a file under 30MB." },
-      { status: 400 },
+      {
+        error:
+          "Request body is too large or invalid. Large .xlsx files must use direct S3 upload (presign + browser PUT).",
+      },
+      { status: 413 },
     );
   }
 
@@ -126,75 +141,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Surface SDK / service errors in the client without leaking request IDs as the only help. */
-function formatAwsS3Error(e: unknown): {
-  userMessage: string;
-  code: string;
-  logLine: string;
-} {
-  if (e instanceof Error) {
-    const ex = e as Error & { Code?: string; $metadata?: { httpStatusCode?: number } };
-    const code = (ex.Code || ex.name || "Error").toString();
-    const msg = ex.message || "Unknown error";
-    const logLine = `${code}: ${msg}`;
-
-    if (code === "AccessDenied" || msg.includes("Access Denied")) {
-      return {
-        userMessage: `S3 access denied. Ensure this IAM user can s3:PutObject (and s3:GetObject for download links) on bucket "${process.env.AWS_S3_BUCKET ?? "(bucket)"}". ${msg}`,
-        code: "AccessDenied",
-        logLine,
-      };
-    }
-    if (code === "NoSuchBucket" || msg.includes("The specified bucket does not exist")) {
-      return {
-        userMessage: `S3 bucket not found. Check AWS_S3_BUCKET matches the real bucket name and AWS_REGION is the region where the bucket was created. ${msg}`,
-        code: "NoSuchBucket",
-        logLine,
-      };
-    }
-    if (code === "InvalidAccessKeyId" || code === "SignatureDoesNotMatch") {
-      return {
-        userMessage: `Invalid AWS key or secret. Check AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in .env.local (no extra spaces or quotes) and restart the dev server. ${msg}`,
-        code,
-        logLine,
-      };
-    }
-    if (code === "PermanentRedirect" || code === "AuthorizationHeaderMalformed") {
-      return {
-        userMessage: `Region mismatch. Set AWS_REGION to the bucket's region. ${msg}`,
-        code,
-        logLine,
-      };
-    }
-    if (code === "NetworkingError" || code === "TimeoutError") {
-      return {
-        userMessage: `Network error talking to S3. Check VPN, firewall, and AWS_REGION. ${msg}`,
-        code,
-        logLine,
-      };
-    }
-    const errno = (ex as NodeJS.ErrnoException).code;
-    if (errno === "ENOTFOUND" || msg.includes("ENOTFOUND") || msg.includes("getaddrinfo")) {
-      return {
-        userMessage:
-          `Could not resolve AWS (DNS). You may be offline, on a VPN/DNS that blocks Amazon, or behind a strict firewall. ` +
-          `Try: another network, disable VPN, or set DNS to 8.8.8.8. ` +
-          `If virtual-hosted S3 is blocked, add S3_FORCE_PATH_STYLE=1 to .env.local and restart the dev server. ` +
-          `Details: ${msg}`,
-        code: "ENOTFOUND",
-        logLine,
-      };
-    }
-
-    return {
-      userMessage: `S3 request failed: ${msg}`,
-      code,
-      logLine,
-    };
-  }
-  return {
-    userMessage: "Could not upload to S3. See server log for details.",
-    code: "Unknown",
-    logLine: String(e),
-  };
-}
