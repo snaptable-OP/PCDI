@@ -8,10 +8,21 @@ export const maxDuration = 120;
 const PDF_MAX_BYTES = 25 * 1024 * 1024;
 
 /**
- * Same-origin upload: presigned URL + server PUT to S3 (billie-defect-reference-file) + register via /save.
- * Avoids browser "Failed to fetch" from direct cross-origin PUT to S3.
+ * Legacy same-origin upload (file bytes through this server).
+ * **Not suitable on Vercel** — request body limit (~4.5MB) causes FUNCTION_PAYLOAD_TOO_LARGE.
+ * The UI uses browser → presigned S3 PUT → POST /save instead (see reference-file-client-upload.ts).
  */
 export async function POST(request: NextRequest) {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength && Number(contentLength) > 4 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        error:
+          "File is too large to upload through the app server on Vercel. The UI should upload directly to S3 via presigned URL — refresh the page and try again.",
+      },
+      { status: 413 },
+    );
+  }
   if (process.env.BILLIE_SKIP_BACKEND_HANDOFF === "1") {
     return billieHandoffDisabledResponse();
   }

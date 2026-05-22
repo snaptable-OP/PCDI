@@ -13,6 +13,7 @@ import { parseFirstSheetDataRows, parseSheetColumnHeaders } from "@/lib/pcdi/par
 import type { PcdiUploadSessionPayload } from "@/lib/pcdi/types";
 import { clearBillieMergeSession } from "@/lib/pcdi/billie-merge-session";
 import { clearHistoricalAiColumnMappingSession } from "@/lib/pcdi/map-session";
+import { isSaveExcelGatewayTimeout } from "@/lib/pcdi/save-excel-handoff";
 import { clearUploadPayload, writeUploadPayload } from "@/lib/pcdi/upload-session";
 
 type HistoricalUploadPanelProps = {
@@ -64,10 +65,43 @@ export function HistoricalUploadPanel({
   const [headerRow, setHeaderRow] = useState(1);
   const [stagedFile, setStagedFile] = useState<File | null>(null);
   const [backendJsonCopied, setBackendJsonCopied] = useState(false);
+  const [registrationWarning, setRegistrationWarning] = useState<string | null>(null);
+
+  const registerWithBackend = useCallback(
+    async (fileUrl: string, headerNum: number) => {
+      const handoffRes = await fetch("/api/save-excel-content", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, fileUrl, headerNum }),
+      });
+      const body = (await handoffRes.json().catch(() => ({}))) as {
+        error?: string;
+        cause?: string;
+        hint?: string;
+        gatewayTimeout?: boolean;
+        ok?: boolean;
+        data?: unknown;
+        skipped?: boolean;
+      };
+      if (!handoffRes.ok) {
+        return {
+          ok: false as const,
+          status: handoffRes.status,
+          message:
+            [body.error, body.cause, body.hint].filter(Boolean).join("\n\n") ||
+            "Could not register the file with the analysis server.",
+          gatewayTimeout: isSaveExcelGatewayTimeout(handoffRes.status, body),
+        };
+      }
+      return { ok: true as const, data: body.data, skipped: body.skipped };
+    },
+    [projectId],
+  );
 
   const runParse = useCallback(
     async (file: File, row: number) => {
       setError(null);
+      setRegistrationWarning(null);
       if (!isXlsxFile(file)) {
         setError("Please choose an Excel file (.xlsx).");
         return;
@@ -116,44 +150,48 @@ export function HistoricalUploadPanel({
           region: string;
         };
 
-        const handoffRes = await fetch("/api/save-excel-content", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            projectId,
-            fileUrl: s3.fileUrl,
-            headerNum: s3.headerRow,
-          }),
-        });
-        if (!handoffRes.ok) {
-          const errBody = (await handoffRes.json().catch(() => ({}))) as {
-            error?: string;
-            cause?: string;
-            hint?: string;
-          };
+        const handoff = await registerWithBackend(s3.fileUrl, s3.headerRow);
+        let fromBackend: string[] | null = null;
+        let defectFileId: string | null = null;
+
+        if (!handoff.ok) {
+          if (handoff.gatewayTimeout) {
+            const next: PcdiUploadSessionPayload = {
+              projectId,
+              fileName: file.name,
+              headerRow: s3.headerRow,
+              columns,
+              s3Bucket: s3.bucket,
+              s3Key: s3.key,
+              s3Region: s3.region,
+              fileUrl: s3.fileUrl,
+              presignedUrlExpiresInSeconds: s3.presignedUrlExpiresInSeconds,
+              ...(dataRowsRaw && dataRowsRaw.length > 0 ? { dataRows: dataRowsRaw } : {}),
+            };
+            clearBillieMergeSession(projectId);
+            clearHistoricalAiColumnMappingSession(projectId);
+            writeUploadPayload(next);
+            setPayload(next);
+            onPayloadChange?.(next);
+            setHeaderRow(rowUsed);
+            setRegistrationWarning(
+              `${handoff.message}\n\nColumn headers were read from your file locally. Use “Retry server registration” below before starting analysis.`,
+            );
+            return;
+          }
           setPayload(null);
           onPayloadChange?.(null);
           clearBillieMergeSession(projectId);
           clearUploadPayload(projectId);
-          setError(
-            [errBody.error, errBody.cause, errBody.hint]
-              .filter(Boolean)
-              .join("\n\n") ||
-              "Could not register the file with the analysis server. Check the network and try again.",
-          );
+          setError(handoff.message);
           return;
         }
 
-        const handoffJson = (await handoffRes.json()) as {
-          ok?: boolean;
-          data?: unknown;
-          skipped?: boolean;
-        };
-        const fromBackend =
-          handoffJson.data != null ? extractColumnNamesFromBackendPayload(handoffJson.data) : null;
+        fromBackend =
+          handoff.data != null ? extractColumnNamesFromBackendPayload(handoff.data) : null;
         const columnsUsed = fromBackend && fromBackend.length > 0 ? fromBackend : columns;
-        const defectFileId =
-          handoffJson.data != null ? extractDefectFileIdFromBackendPayload(handoffJson.data) : null;
+        defectFileId =
+          handoff.data != null ? extractDefectFileIdFromBackendPayload(handoff.data) : null;
 
         const next: PcdiUploadSessionPayload = {
           projectId,
@@ -174,6 +212,11 @@ export function HistoricalUploadPanel({
         setPayload(next);
         onPayloadChange?.(next);
         setHeaderRow(rowUsed);
+        if (!defectFileId && !handoff.skipped) {
+          setRegistrationWarning(
+            "File uploaded, but the analysis server did not return a defect file id. Retry registration before analysis.",
+          );
+        }
       } catch {
         setPayload(null);
         onPayloadChange?.(null);
@@ -184,8 +227,42 @@ export function HistoricalUploadPanel({
         setBusy(false);
       }
     },
-    [projectId, basePath, onPayloadChange],
+    [projectId, basePath, onPayloadChange, registerWithBackend],
   );
+
+  const onRetryRegistration = useCallback(async () => {
+    if (!payload?.fileUrl) return;
+    setBusy(true);
+    setError(null);
+    setRegistrationWarning(null);
+    try {
+      const handoff = await registerWithBackend(payload.fileUrl, payload.headerRow);
+      if (!handoff.ok) {
+        setRegistrationWarning(handoff.message);
+        return;
+      }
+      const defectFileId =
+        handoff.data != null ? extractDefectFileIdFromBackendPayload(handoff.data) : null;
+      const fromBackend =
+        handoff.data != null ? extractColumnNamesFromBackendPayload(handoff.data) : null;
+      const next: PcdiUploadSessionPayload = {
+        ...payload,
+        columns:
+          fromBackend && fromBackend.length > 0 ? fromBackend : payload.columns,
+        ...(defectFileId ? { defectFileId } : {}),
+      };
+      writeUploadPayload(next);
+      setPayload(next);
+      onPayloadChange?.(next);
+      if (!defectFileId && !handoff.skipped) {
+        setRegistrationWarning(
+          "Registration completed but no defect file id was returned. Analysis may not start until the server returns one.",
+        );
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [payload, registerWithBackend, onPayloadChange]);
 
   const processFile = useCallback(
     (file: File) => {
@@ -337,8 +414,16 @@ export function HistoricalUploadPanel({
         </p>
       ) : null}
       {error ? (
-        <p className="mt-4 text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="mt-4 whitespace-pre-wrap text-sm text-red-600 dark:text-red-400" role="alert">
           {error}
+        </p>
+      ) : null}
+      {registrationWarning ? (
+        <p
+          className="mt-4 whitespace-pre-wrap text-sm text-[color:var(--status-warning)]"
+          role="status"
+        >
+          {registrationWarning}
         </p>
       ) : null}
 
@@ -395,7 +480,26 @@ export function HistoricalUploadPanel({
           <p className="mt-3 text-xs text-[var(--muted-foreground)]">
             Header row <span className="font-medium text-[var(--foreground)]">{payload.headerRow}</span> ·{" "}
             {payload.columns.length} column{payload.columns.length === 1 ? "" : "s"} detected
+            {payload.defectFileId ? (
+              <>
+                {" "}
+                · registered (defect file{" "}
+                <span className="font-mono text-[11px]">{payload.defectFileId.slice(0, 8)}…</span>)
+              </>
+            ) : (
+              <> · server registration pending</>
+            )}
           </p>
+          {payload.fileUrl && !payload.defectFileId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onRetryRegistration}
+              className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] hover:bg-[var(--surface-muted)] disabled:opacity-50"
+            >
+              Retry server registration
+            </button>
+          ) : null}
           {isEmbedded ? (
             <p className="mt-3 text-xs font-medium text-foreground-emphasis">
               Use <strong>Column selection</strong> below to choose columns, then continue.

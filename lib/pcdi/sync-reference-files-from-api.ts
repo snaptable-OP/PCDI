@@ -5,6 +5,10 @@ import {
 } from "@/lib/pcdi/analysis-timeouts";
 import type { KnowledgeDocument } from "@/lib/pcdi/knowledge-folders-store";
 import { useKnowledgeFoldersStore } from "@/lib/pcdi/knowledge-folders-store";
+import {
+  putReferencePdfToPresignedS3,
+  saveReferenceFileToFolder,
+} from "@/lib/pcdi/reference-file-client-upload";
 
 const INDEX_POLL_INTERVAL_MS = ANALYSIS_POLL_INTERVAL_MS;
 const INDEX_POLL_MAX_ATTEMPTS = analysisPollMaxAttempts(ANALYSIS_MAX_WAIT_MS, INDEX_POLL_INTERVAL_MS);
@@ -187,36 +191,22 @@ export async function uploadReferenceFileToFolder(
   };
 
   try {
-    const form = new FormData();
-    form.append("file", file);
-    form.append("knowledgeFolderId", folderId);
-
-    const uploadRes = await fetch("/api/defect-reference-files/upload", {
-      method: "POST",
-      body: form,
-      signal,
-    });
-    const uploadBody = (await uploadRes.json().catch(() => ({}))) as {
-      error?: string;
-      step?: string;
-      documents?: KnowledgeDocument[];
-      document?: KnowledgeDocument;
-    };
-
-    if (!uploadRes.ok) {
+    const stored = await putReferencePdfToPresignedS3(file, signal);
+    if (!stored.ok) {
       useKnowledgeFoldersStore.getState().removeDocumentLocal(placeholderId);
-      const step = uploadBody.step ? ` (${uploadBody.step})` : "";
-      return {
-        ok: false,
-        error:
-          uploadBody.error ??
-          `Upload failed${step}. Ensure the dev server and analysis API are reachable.`,
-      };
+      const step = stored.step ? ` (${stored.step})` : "";
+      return { ok: false, error: `${stored.error}${step}` };
+    }
+
+    const registered = await saveReferenceFileToFolder(folderId, file, stored.fileUrl, signal);
+    if (!registered.ok) {
+      useKnowledgeFoldersStore.getState().removeDocumentLocal(placeholderId);
+      return { ok: false, error: `${registered.error} (${registered.step})` };
     }
 
     setDocStatus(placeholderId, { status: "parsing" });
 
-    const saved = uploadBody.document ?? uploadBody.documents?.[0];
+    const saved = registered.document ?? registered.documents[0];
     if (!saved?.id) {
       useKnowledgeFoldersStore.getState().removeDocumentLocal(placeholderId);
       return { ok: false, error: "Could not read reference file id after save." };
@@ -257,7 +247,7 @@ export async function uploadReferenceFileToFolder(
     const msg = e instanceof Error ? e.message : "Upload failed.";
     const friendly =
       msg === "Failed to fetch" || msg.includes("NetworkError")
-        ? "Could not reach the app server. Check that `npm run dev` is running and you are on http://127.0.0.1:3333."
+        ? "Could not reach the app or storage. For large PDFs the browser uploads directly to S3 — check network, Vercel env (BILLIE_API_BASE), and S3 CORS on the reference-file bucket."
         : msg;
     return { ok: false, error: friendly };
   }

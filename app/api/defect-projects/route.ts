@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import {
+  GATEWAY_TIMEOUT_HINT,
+  isUpstreamGatewayTimeout,
+} from "@/lib/billie/gateway-timeout";
 import { getBillieBase } from "@/lib/billie/upstream-json";
 import {
   extractDefectProjectId,
@@ -90,7 +94,18 @@ export async function GET() {
 
   if (!res.ok) {
     const msg = upstreamErrorMessage(data, res.status);
-    return NextResponse.json({ error: msg, detail: data }, { status: 502 });
+    const gatewayTimeout = isUpstreamGatewayTimeout(res.status, msg, text);
+    return NextResponse.json(
+      {
+        error: gatewayTimeout
+          ? "The analysis API timed out while loading projects (AWS API Gateway limit is often ~30 seconds)."
+          : msg,
+        detail: data,
+        gatewayTimeout,
+        hint: gatewayTimeout ? GATEWAY_TIMEOUT_HINT : undefined,
+      },
+      { status: gatewayTimeout ? 504 : 502 },
+    );
   }
 
   const projects = mapDefectProjectsResponseToHistorical(data, "live");
@@ -145,9 +160,17 @@ export async function POST(request: NextRequest) {
 
   if (!res.ok) {
     const msg = upstreamErrorMessage(data, res.status);
+    const gatewayTimeout = isUpstreamGatewayTimeout(res.status, msg, text);
     return NextResponse.json(
-      { error: humanizeProjectCreateError(msg), detail: data },
-      { status: 502 },
+      {
+        error: gatewayTimeout
+          ? "The analysis API timed out while creating this project (AWS API Gateway limit is often ~30 seconds)."
+          : humanizeProjectCreateError(msg),
+        detail: data,
+        gatewayTimeout,
+        hint: gatewayTimeout ? GATEWAY_TIMEOUT_HINT : undefined,
+      },
+      { status: gatewayTimeout ? 504 : 502 },
     );
   }
 

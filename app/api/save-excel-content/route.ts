@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { billieLongRunningFetch } from "@/lib/billie/upstream-fetch-options";
 import { upstreamFetchFailedResponse } from "@/lib/billie/upstream-fetch-error";
+import { GATEWAY_TIMEOUT_HINT, isUpstreamGatewayTimeout } from "@/lib/billie/gateway-timeout";
 import { getBillieBase } from "@/lib/billie/upstream-json";
 
 export const runtime = "nodejs";
@@ -84,16 +85,33 @@ export async function POST(request: NextRequest) {
   }
 
   if (!res.ok) {
-    const msg =
+    const rawMsg =
       typeof data === "object" &&
       data !== null &&
       "message" in data &&
       typeof (data as { message: unknown }).message === "string"
         ? (data as { message: string }).message
-        : `Analysis server returned ${res.status}`;
+        : typeof data === "object" &&
+            data !== null &&
+            "error" in data &&
+            typeof (data as { error: unknown }).error === "string"
+          ? (data as { error: string }).error
+          : `Analysis server returned ${res.status}`;
+    const gatewayTimeout = isUpstreamGatewayTimeout(res.status, rawMsg, text);
+    const msg = gatewayTimeout
+      ? "The analysis API gateway timed out while registering this spreadsheet (common limit ~30 seconds on AWS API Gateway)."
+      : rawMsg;
     return NextResponse.json(
-      { error: msg, status: res.status, detail: data },
-      { status: 502 },
+      {
+        error: msg,
+        status: res.status,
+        gatewayTimeout,
+        detail: data,
+        hint: gatewayTimeout
+          ? `${GATEWAY_TIMEOUT_HINT} Your file may already be on S3 — retry registration or use a smaller file.`
+          : undefined,
+      },
+      { status: gatewayTimeout ? 504 : 502 },
     );
   }
 
